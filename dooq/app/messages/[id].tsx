@@ -7,6 +7,7 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import customTheme from '../theme';
 import React from 'react';
+import { io, Socket } from 'socket.io-client';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
@@ -27,6 +28,8 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [sentMessages] = useState(new Set());
 
   useEffect(() => {
     const getUserId = async () => {
@@ -43,7 +46,7 @@ export default function ChatScreen() {
 
         if (response.data && response.data.id) {
           const userIdString = response.data.id.toString();
-          console.log("✅ Current User ID:", userIdString);
+          // console.log("✅ Current User ID:", userIdString);
           setUserId(userIdString);
         } else {
           console.error("❌ Invalid user data received:", response.data);
@@ -70,26 +73,23 @@ export default function ChatScreen() {
   }, []);
 
   const fetchMessages = async () => {
-    if (!userId) {
-      console.log("🚨 Skipping message fetch: userId is null");
+    if (!userId || !receiverId) {
+      // console.log("🚨 Skipping message fetch: userId or receiverId is null");
+      setLoading(false);
       return;
     }
-  
+
     try {
+      // console.log("📡 Fetching initial messages...");
       const token = await AsyncStorage.getItem('authToken');
-      if (!token || !receiverId) {
-        setLoading(false);
-        return;
-      }
-  
-      console.log("📡 Fetching messages for receiver:", receiverId, " and userId:", userId);
-  
+      if (!token) return;
+
       const response = await axios.get(`${API_URL}/api/messages/${receiverId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-  
+
       if (response.data) {
-        console.log("📩 Fetched Messages:", response.data);
+        // console.log(`📩 Fetched ${response.data.length} messages`);
         setMessages(response.data);
       }
     } catch (error) {
@@ -101,46 +101,113 @@ export default function ChatScreen() {
   };
 
   useEffect(() => {
-    if (receiverId && userId) {
-      fetchMessages();
-      const interval = setInterval(fetchMessages, 5000);
-      return () => clearInterval(interval);
+    const initializeSocket = async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        if (!token) return;
+
+        // console.log('🔌 Initializing socket connection...');
+        const socketInstance = io(API_URL, {
+          auth: { token },
+          transports: ['websocket']
+        });
+
+        socketInstance.on('connect', () => {
+          // console.log('✅ Socket connected');
+          // Initial message fetch when socket connects
+          fetchMessages();
+          // Join chat room
+          socketInstance.emit('joinChat', receiverId);
+        });
+
+        socketInstance.on('newMessage', (message) => {
+          // console.log('📩 New message received:', message);
+          
+          setMessages((prev) => {
+            // Check if message already exists or was sent by us
+            if (sentMessages.has(message._id) || prev.some(msg => msg._id === message._id)) {
+              return prev;
+            }
+
+            // Remove any temporary version of this message
+            const withoutTemp = prev.filter(msg => 
+              !msg._id.startsWith('temp-') || 
+              msg.content !== message.content
+            );
+
+            return [...withoutTemp, message];
+          });
+
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        });
+
+        socketInstance.on('messageError', (error) => {
+          console.error('❌ Socket error:', error);
+          Alert.alert('Error', error.message);
+        });
+
+        socketInstance.on('disconnect', () => {
+          // console.log('❌ Socket disconnected');
+        });
+
+        setSocket(socketInstance);
+
+        return () => {
+          // console.log('🔌 Cleaning up socket connection...');
+          socketInstance.disconnect();
+        };
+      } catch (error) {
+        console.error('❌ Socket initialization error:', error);
+      }
+    };
+
+    if (userId && receiverId) {
+      initializeSocket();
     }
-  }, [receiverId, userId]);
+  }, [userId, receiverId]); // Add userId to dependencies
 
   const handleSend = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !socket) return;
+
+    const messageContent = newMessage.trim();
+    const tempId = `temp-${Date.now()}`;
 
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (!token) {
-        Alert.alert('Error', 'Please login to send messages');
-        return;
-      }
+      setNewMessage(''); // Clear input immediately
 
-      await axios.post(
-        `${API_URL}/api/messages`,
-        { receiverId, content: newMessage.trim() },
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+      // Create temporary message
+      const tempMessage: Message = {
+        _id: tempId,
+        sender: { _id: userId || '', name: 'You' },
+        receiver: { _id: receiverId, name: receiverName || 'Unknown' },
+        content: messageContent,
+        createdAt: new Date().toISOString(),
+        read: false
+      };
+
+      // Update UI optimistically
+      setMessages(prev => [...prev, tempMessage]);
+
+      // Emit through socket with message ID
+      socket.emit('message', { 
+        receiverId, 
+        content: messageContent,
+        tempId
+      }, (acknowledgement: { success: any; messageId: unknown; }) => {
+        if (acknowledgement?.success) {
+          sentMessages.add(acknowledgement.messageId);
         }
-      );
+      });
 
-      setNewMessage('');
-      fetchMessages();
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-    } catch (error: any) {
-      console.error('❌ Error details:', error.response?.data);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      // Scroll to bottom
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message');
+      // Remove the temporary message if sending failed
+      setMessages(prev => prev.filter(msg => msg._id !== tempId));
     }
-  };
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -163,10 +230,8 @@ export default function ChatScreen() {
             ref={scrollViewRef}
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
           >
-            {userId && messages.map((msg, index) => {
+            {messages.map((msg, index) => {
               const isCurrentUser = msg.sender._id.toString() === userId;
-              console.log("📨 Message:", msg, "➡️ Is Current User:", isCurrentUser);
-
               return (
                 <View
                   key={msg._id || index}
@@ -175,14 +240,8 @@ export default function ChatScreen() {
                     isCurrentUser ? styles.sentContainer : styles.receivedContainer,
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.messageBubble,
-                      isCurrentUser ? styles.sentMessage : styles.receivedMessage,
-                    ]}
-                  >
+                  <View style={[styles.messageBubble, isCurrentUser ? styles.sentMessage : styles.receivedMessage]}>
                     <Text style={styles.messageText}>{msg.content}</Text>
-                    <Text style={styles.timestamp}>{formatTime(msg.createdAt)}</Text>
                   </View>
                 </View>
               );

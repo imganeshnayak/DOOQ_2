@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import customTheme from '../theme';
+import { io } from 'socket.io-client';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
@@ -46,7 +47,7 @@ export default function MessagesScreen() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      console.log("Fetched Conversations:", convResponse.data);
+      // console.log("Fetched Conversations:", convResponse.data);
 
       setConversations(convResponse.data);
       setError(null);
@@ -69,6 +70,27 @@ export default function MessagesScreen() {
     fetchData();
     const interval = setInterval(() => fetchData(false), 10000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const initializeSocket = async () => {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      const socket = io(API_URL, {
+        auth: { token }
+      });
+
+      socket.on('conversationUpdate', () => {
+        fetchData(false);
+      });
+
+      return () => {
+        socket.disconnect();
+      };
+    };
+
+    initializeSocket();
   }, []);
 
   const renderItem = ({ item }: { item: any }) => {

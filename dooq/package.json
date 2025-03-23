@@ -22,6 +22,7 @@
     "expo-constants": "^17.0.5",
     "expo-font": "~13.0.4",
     "expo-haptics": "^14.0.1",
+    "expo-image-picker": "~16.0.6",
     "expo-linear-gradient": "^14.0.2",
     "expo-linking": "^7.0.5",
     "expo-location": "~18.0.7",
@@ -47,7 +48,7 @@
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "^0.19.13",
     "react-native-webview": "13.12.5",
-    "expo-image-picker": "~16.0.6"
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -8,9 +8,17 @@ export const sendMessage = async (req, res) => {
     const { receiverId, content } = req.body;
     const senderId = req.user.userId;
 
+    if (!receiverId || !content.trim()) {
+      return res.status(400).json({ message: 'Receiver ID and content are required' });
+    }
+
+    // Convert string IDs to ObjectId if needed
+    const senderObjectId = mongoose.Types.ObjectId(senderId);
+    const receiverObjectId = mongoose.Types.ObjectId(receiverId);
+
     const message = new Message({
-      sender: senderId,
-      receiver: receiverId,
+      sender: senderObjectId,
+      receiver: receiverObjectId,
       content: content.trim(),
       read: false
     });
@@ -21,9 +29,16 @@ export const sendMessage = async (req, res) => {
       .populate('sender', 'name')
       .populate('receiver', 'name');
 
+    // Socket.IO emission
+    const io = req.app.get('io');
+    if (io) {
+      io.to(senderId).to(receiverId).emit('newMessage', populatedMessage);
+      io.to(receiverId).emit('conversationUpdate');
+    }
+
     res.status(201).json(populatedMessage);
   } catch (error) {
-    console.error('Error in sendMessage:', error);
+    console.error('❌ Error in sendMessage:', error);
     res.status(500).json({ message: 'Error sending message' });
   }
 };
