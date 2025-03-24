@@ -22,35 +22,47 @@ export default function RegisterScreen() {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-
+  
     if (!termsChecked) {
       Alert.alert('Error', 'Please accept the Terms and Conditions');
       return;
     }
-
+  
     try {
       const response = await axios.post(`${API_URL}/api/users/register`, {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password,
-        zipcode: zipcode.trim()
+        zipcode: zipcode.trim(),
       });
-
-      if (response.data.token) {
-        await AsyncStorage.setItem('authToken', response.data.token);
-        router.replace('/(tabs)');
-      }
+  
+      // Show success message before navigating to OTP verification
+      Alert.alert(
+        'Verification Required',
+        'We have sent a verification code to your email. Please enter the OTP to verify your account.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              router.push({
+                pathname: '/verify-otp',
+                params: { userId: response.data.userId },
+              });
+            },
+          },
+        ]
+      );
     } catch (error: any) {
-      console.error('Registration error:', error);
-      
-      const errorMessage = error.response?.data?.message || 
-        error.message === 'Network Error' 
+      const errorMessage =
+        error.response?.data?.message ||
+        (error.message === 'Network Error'
           ? 'Unable to connect to server. Please check your internet connection.'
-          : 'Registration failed. Please try again.';
-
+          : 'Registration failed. Please try again.');
+  
       Alert.alert('Error', errorMessage);
     }
   };
+  
 
   return (
     <KeyboardAvoidingView 

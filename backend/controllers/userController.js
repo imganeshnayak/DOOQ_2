@@ -2,6 +2,7 @@ import User from '../models/users.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { sendOTP } from '../services/emailService.js';
 
 export const register = async (req, res) => {
   try {
@@ -9,46 +10,99 @@ export const register = async (req, res) => {
 
     // Input validation
     if (!name || !email || !password || !zipcode) {
-      return res.status(400).json({
-        message: 'All fields are required'
-      });
+      return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        message: 'Please enter a valid email address'
-      });
-    }
-
-    // Check if user already exists
+    // Check if user exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      return res.status(400).json({
-        message: 'Email already registered'
-      });
+    if (existingUser && existingUser.otp.verified) {
+      return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // Create new user
-    const user = new User({
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    const userData = {
       name: name.trim(),
       email: email.toLowerCase(),
-      password, // Will be hashed by the model middleware
-      zipcode: zipcode.trim()
-    });
+      password,
+      zipcode: zipcode.trim(),
+      otp: {
+        code: otp,
+        expiry: otpExpiry,
+        verified: false
+      }
+    };
 
+    // Create or update user
+    const user = existingUser 
+      ? await User.findOneAndUpdate(
+          { email: email.toLowerCase() },
+          userData,
+          { new: true }
+        )
+      : await User.create(userData);
+
+    // Send OTP
+    const emailSent = await sendOTP(email, otp);
+    if (!emailSent) {
+      return res.status(500).json({ message: 'Failed to send verification code' });
+    }
+
+    res.status(200).json({
+      message: 'Verification code sent to your email',
+      userId: user._id
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error during registration' });
+  }
+};
+
+export const verifyOTP = async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+    console.log('Verifying OTP:', { userId, otp }); // Debug log
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('User not found:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log('Stored OTP:', user.otp); // Debug log
+
+    if (user.otp.verified) {
+      return res.status(400).json({ message: 'Email already verified' });
+    }
+
+    if (!user.otp.code || !user.otp.expiry) {
+      return res.status(400).json({ message: 'No OTP found for this user' });
+    }
+
+    if (Date.now() > new Date(user.otp.expiry).getTime()) {
+      return res.status(400).json({ message: 'OTP has expired' });
+    }
+
+    // Convert both to strings for comparison
+    if (user.otp.code.toString() !== otp.toString()) {
+      console.log('OTP mismatch:', { stored: user.otp.code, received: otp });
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    // Mark as verified
+    user.otp.verified = true;
     await user.save();
 
-    // Generate JWT token
+    // Generate token
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    // Send success response
-    res.status(201).json({
+    res.json({
       token,
       user: {
         id: user._id,
@@ -56,12 +110,9 @@ export const register = async (req, res) => {
         email: user.email
       }
     });
-
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({
-      message: 'Server error during registration'
-    });
+    console.error('OTP verification error:', error);
+    res.status(500).json({ message: 'Error verifying OTP' });
   }
 };
 

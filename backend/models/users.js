@@ -50,6 +50,20 @@ const userSchema = new Schema({
   resetTokenExpiry: {
     type: Date,
     default: null
+  },
+  otp: {
+    code: {
+      type: String,
+      required: false
+    },
+    expiry: {
+      type: Date,
+      required: false
+    },
+    verified: {
+      type: Boolean,
+      default: false
+    }
   }
 }, {
   timestamps: true,

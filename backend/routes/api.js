@@ -14,5 +14,5 @@ router.use('/offers', authMiddleware, offerRoutes);
 router.use('/notifications', authMiddleware, notificationRoutes);
 router.use('/messages', authMiddleware, messageRoutes); // ✅ Now protected
 router.use('/:userId', authMiddleware, getMessages);
-
+router.use('/users/verify-otp', verifyOTP);
 export default router;
