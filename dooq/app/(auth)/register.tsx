@@ -1,10 +1,11 @@
-import { View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Text, TextInput, Button, Checkbox } from 'react-native-paper';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import Logo from '../components/Logo';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
@@ -17,28 +18,37 @@ export default function RegisterScreen() {
   const [termsChecked, setTermsChecked] = useState(false);
 
   const handleRegister = async () => {
-    console.log('Register button clicked');
+    if (!name || !email || !password || !zipcode) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!termsChecked) {
+      Alert.alert('Error', 'Please accept the Terms and Conditions');
+      return;
+    }
+
     try {
-      console.log('Sending registration request...');
-      const response = await axios.post('http://192.168.154.125:5000/api/users/register', {
-        name,
-        email,
+      const response = await axios.post(`${API_URL}/api/users/register`, {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
         password,
-        zipcode,
-      }, {
-        timeout: 5000 // Set a timeout of 5 seconds
+        zipcode: zipcode.trim()
       });
-      console.log(response.data);
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      console.error('Full error object:', error); // Log the full error object
-      if (error.response) {
-        console.error('Registration error:', error.response.data);
-      } else if (error.request) {
-        console.error('Registration error: No response received from server');
-      } else {
-        console.error('Registration error:', error.message);
+
+      if (response.data.token) {
+        await AsyncStorage.setItem('authToken', response.data.token);
+        router.replace('/(tabs)');
       }
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      
+      const errorMessage = error.response?.data?.message || 
+        error.message === 'Network Error' 
+          ? 'Unable to connect to server. Please check your internet connection.'
+          : 'Registration failed. Please try again.';
+
+      Alert.alert('Error', errorMessage);
     }
   };
 

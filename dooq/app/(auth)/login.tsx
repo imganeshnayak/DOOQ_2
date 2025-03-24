@@ -91,8 +91,13 @@ export default function Login() {
 
         {/* Forgot Password */}
         <View style={styles.forgotPassword}>
-          <Text variant="bodyMedium" style={styles.forgotPasswordText}>Forgot your password?</Text>
-          <Button mode="text" compact>Reset it</Button>
+          <Button 
+            mode="text" 
+            onPress={() => router.push('/forgot-password')}
+            compact
+          >
+            Forgot Password?
+          </Button>
         </View>
 
         {/* Sign in with Google */}
