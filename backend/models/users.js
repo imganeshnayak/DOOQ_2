@@ -39,6 +39,14 @@ const userSchema = new Schema({
     type: Number,
     default: 0,
   },
+  onTimeRate: {
+    type: Number,
+    default: 100
+  },
+  repeatClients: {
+    type: Number,
+    default: 0
+  },
   bio: {
     type: String,
     default: '',
@@ -64,9 +72,28 @@ const userSchema = new Schema({
       type: Boolean,
       default: false
     }
+  },
+  expoPushToken: {
+    type: String,
+    default: null
+  },
+  achievements: {
+    type: Schema.Types.ObjectId,
+    ref: 'Achievement'
+  },
+  level: {
+    type: String,
+    enum: ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
+    default: 'BRONZE'
   }
 }, {
   timestamps: true,
+});
+
+userSchema.virtual('reviews', {
+  ref: 'Review',
+  localField: '_id',
+  foreignField: 'recipient'
 });
 
 // Hash password before saving

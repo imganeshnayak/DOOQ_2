@@ -2,6 +2,8 @@ import User from '../models/users.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import mongoose from 'mongoose';  // Add this line
+
 import { sendOTP } from '../services/emailService.js';
 
 export const register = async (req, res) => {
@@ -154,12 +156,95 @@ export const login = async (req, res) => {
 };
 
 export const getProfile = async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        res.json(user);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+  try {
+    // Get userId from auth middleware for 'me' or from params for specific user
+    const userId = req.params.userId === 'me' ? req.user.userId : req.params.userId;
+
+    // Validate userId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
     }
+
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const responseData = {
+      user: {
+        avatar: user.avatar || 'https://via.placeholder.com/150',
+        name: user.name,
+        rating: user.rating || 0,
+        completedTasks: user.completedTasks || 0,
+        location: user.location || 'Not specified',
+        memberSince: user.createdAt?.toLocaleDateString('en-US', { 
+          month: 'long', 
+          year: 'numeric' 
+        }),
+        bio: user.bio || 'No bio provided'
+      },
+      stats: {
+        tasksCompleted: user.completedTasks || 0,
+        onTimeRate: '100%',
+        repeatClients: 0
+      },
+      reviews: []
+    };
+
+    res.json(responseData);
+
+  } catch (error) {
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ 
+      message: 'Error fetching profile',
+      error: error.message 
+    });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, bio, location } = req.body;
+    const userId = req.user.userId;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { 
+        $set: { 
+          name,
+          bio,
+          location
+        }
+      },
+      { new: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({
+      user: {
+        avatar: updatedUser.avatar,
+        name: updatedUser.name,
+        rating: updatedUser.rating || 0,
+        completedTasks: updatedUser.completedTasks || 0,
+        location: updatedUser.location || 'Not specified',
+        memberSince: updatedUser.createdAt?.toLocaleDateString('en-US', { 
+          month: 'long', 
+          year: 'numeric' 
+        }),
+        bio: updatedUser.bio || 'No bio provided'
+      }
+    });
+
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ 
+      message: 'Error updating profile',
+      error: error.message 
+    });
+  }
 };
 
 // Update user location
@@ -276,4 +361,19 @@ export const resetPassword = async (req, res) => {
         console.error('Reset password error:', error);
         res.status(500).json({ message: 'Error resetting password' });
     }
+};
+
+export const updatePushToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    await User.findByIdAndUpdate(req.user.userId, {
+      expoPushToken: token
+    });
+
+    res.json({ message: 'Push token updated successfully' });
+  } catch (error) {
+    console.error('Error updating push token:', error);
+    res.status(500).json({ message: 'Error updating push token' });
+  }
 };
