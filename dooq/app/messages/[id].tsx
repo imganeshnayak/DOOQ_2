@@ -1,7 +1,7 @@
-import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, AppState } from 'react-native';
 import { Text, Surface, ActivityIndicator } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
@@ -18,7 +18,53 @@ interface Message {
   content: string;
   createdAt: string;
   read: boolean;
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'error';
 }
+
+const MessageBubble = ({ message, isCurrentUser }: { message: Message; isCurrentUser: boolean }) => {
+  const getStatusIcon = () => {
+    if (!isCurrentUser) return null;
+    
+    switch (message.status) {
+      case 'sending':
+        return <Text style={styles.statusText}>⋯</Text>;
+      case 'sent':
+        return <Text style={styles.statusText}>✓</Text>;
+      case 'delivered':
+        return <Text style={styles.statusText}>✓✓</Text>;
+      case 'read':
+        return (
+          <Text style={[styles.statusText, { color: '#34B7F1' }]}>
+            ✓✓
+          </Text>
+        );
+      case 'error':
+        return <Text style={[styles.statusText, { color: '#FF0000' }]}>!</Text>;
+      default:
+        return <Text style={styles.statusText}>✓</Text>;
+    }
+  };
+
+  return (
+    <View
+      style={[
+        styles.messageContainer,
+        isCurrentUser ? styles.sentContainer : styles.receivedContainer,
+      ]}
+    >
+      <View style={[styles.messageBubble, isCurrentUser ? styles.sentMessage : styles.receivedMessage]}>
+        <Text style={[styles.messageText, isCurrentUser && styles.sentMessageText]}>
+          {message.content}
+        </Text>
+        {isCurrentUser && (
+          <View style={styles.messageStatus}>
+            {getStatusIcon()}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
 
 export default function ChatScreen() {
   const { id: receiverId, name: receiverName } = useLocalSearchParams<{ id: string; name: string }>();
@@ -46,7 +92,6 @@ export default function ChatScreen() {
 
         if (response.data && response.data.id) {
           const userIdString = response.data.id.toString();
-          // console.log("✅ Current User ID:", userIdString);
           setUserId(userIdString);
         } else {
           console.error("❌ Invalid user data received:", response.data);
@@ -74,13 +119,11 @@ export default function ChatScreen() {
 
   const fetchMessages = async () => {
     if (!userId || !receiverId) {
-      // console.log("🚨 Skipping message fetch: userId or receiverId is null");
       setLoading(false);
       return;
     }
 
     try {
-      // console.log("📡 Fetching initial messages...");
       const token = await AsyncStorage.getItem('authToken');
       if (!token) return;
 
@@ -89,7 +132,6 @@ export default function ChatScreen() {
       });
 
       if (response.data) {
-        // console.log(`📩 Fetched ${response.data.length} messages`);
         setMessages(response.data);
       }
     } catch (error) {
@@ -100,62 +142,86 @@ export default function ChatScreen() {
     }
   };
 
+  const markMessagesAsRead = useCallback(() => {
+    if (!socket || !messages.length) return;
+
+    messages.forEach(msg => {
+      if (msg.sender._id === receiverId && !msg.read) {
+        socket.emit('messageRead', { messageId: msg._id });
+      }
+    });
+  }, [messages, receiverId, socket]);
+
+  useEffect(() => {
+    markMessagesAsRead();
+  }, [markMessagesAsRead]);
+
   useEffect(() => {
     const initializeSocket = async () => {
       try {
         const token = await AsyncStorage.getItem('authToken');
         if (!token) return;
 
-        // console.log('🔌 Initializing socket connection...');
         const socketInstance = io(API_URL, {
           auth: { token },
           transports: ['websocket']
         });
 
         socketInstance.on('connect', () => {
-          // console.log('✅ Socket connected');
-          // Initial message fetch when socket connects
-          fetchMessages();
-          // Join chat room
           socketInstance.emit('joinChat', receiverId);
+          // Mark all messages as read when opening chat
+          messages.forEach(msg => {
+            if (msg.sender._id === receiverId && !msg.read) {
+              socketInstance.emit('messageRead', { messageId: msg._id });
+            }
+          });
+          fetchMessages();
+        });
+
+        socketInstance.on('messageDelivered', ({ messageId, status }) => {
+          setMessages(prev => prev.map(msg => 
+            msg._id === messageId ? { ...msg, status } : msg
+          ));
+        });
+
+        socketInstance.on('messageRead', ({ messageId, status }) => {
+          setMessages(prev => prev.map(msg => 
+            msg._id === messageId ? { ...msg, status, read: true } : msg
+          ));
         });
 
         socketInstance.on('newMessage', (message) => {
-          // console.log('📩 New message received:', message);
-          
+          // Immediately mark received messages as read
+          if (message.sender._id === receiverId) {
+            socketInstance.emit('messageRead', { messageId: message._id });
+          }
+
           setMessages((prev) => {
-            // Check if message already exists or was sent by us
-            if (sentMessages.has(message._id) || prev.some(msg => msg._id === message._id)) {
+            // Avoid duplicate messages
+            if (prev.some(msg => msg._id === message._id)) {
               return prev;
             }
 
-            // Remove any temporary version of this message
+            // Remove temporary message if exists
             const withoutTemp = prev.filter(msg => 
               !msg._id.startsWith('temp-') || 
               msg.content !== message.content
             );
 
-            return [...withoutTemp, message];
+            return [...withoutTemp, {
+              ...message,
+              read: message.sender._id === receiverId
+            }];
           });
-
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        });
-
-        socketInstance.on('messageError', (error) => {
-          console.error('❌ Socket error:', error);
-          Alert.alert('Error', error.message);
-        });
-
-        socketInstance.on('disconnect', () => {
-          // console.log('❌ Socket disconnected');
         });
 
         setSocket(socketInstance);
 
+        // Cleanup function
         return () => {
-          // console.log('🔌 Cleaning up socket connection...');
           socketInstance.disconnect();
         };
+
       } catch (error) {
         console.error('❌ Socket initialization error:', error);
       }
@@ -164,7 +230,14 @@ export default function ChatScreen() {
     if (userId && receiverId) {
       initializeSocket();
     }
-  }, [userId, receiverId]); // Add userId to dependencies
+
+    // Cleanup on unmount
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [userId, receiverId]);
 
   const handleSend = async () => {
     if (!newMessage.trim() || !socket) return;
@@ -173,45 +246,52 @@ export default function ChatScreen() {
     const tempId = `temp-${Date.now()}`;
 
     try {
-      setNewMessage(''); // Clear input immediately
+      setNewMessage('');
 
-      // Create temporary message
       const tempMessage: Message = {
         _id: tempId,
         sender: { _id: userId || '', name: 'You' },
         receiver: { _id: receiverId, name: receiverName || 'Unknown' },
         content: messageContent,
         createdAt: new Date().toISOString(),
-        read: false
+        read: false,
+        status: 'sending'
       };
 
-      // Update UI optimistically
       setMessages(prev => [...prev, tempMessage]);
 
-      // Emit through socket with message ID
       socket.emit('message', { 
         receiverId, 
         content: messageContent,
         tempId
-      }, (acknowledgement: { success: any; messageId: unknown; }) => {
+      }, (acknowledgement: { success: boolean; messageId: string }) => {
         if (acknowledgement?.success) {
+          setMessages(prev => prev.map(msg => 
+            msg._id === tempId ? { ...msg, _id: acknowledgement.messageId, status: 'sent' } : msg
+          ));
           sentMessages.add(acknowledgement.messageId);
+        } else {
+          setMessages(prev => prev.map(msg => 
+            msg._id === tempId ? { ...msg, status: 'error' } : msg
+          ));
         }
       });
 
-      // Scroll to bottom
       scrollViewRef.current?.scrollToEnd({ animated: true });
 
     } catch (error) {
       console.error('❌ Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message');
-      // Remove the temporary message if sending failed
-      setMessages(prev => prev.filter(msg => msg._id !== tempId));
+      setMessages(prev => prev.map(msg => 
+        msg._id === tempId ? { ...msg, status: 'error' } : msg
+      ));
     }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
       <Surface style={styles.header} elevation={1}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text>←</Text>
@@ -227,23 +307,14 @@ export default function ChatScreen() {
         <>
           <ScrollView
             style={styles.chatContainer}
+            contentContainerStyle={styles.scrollContent}
             ref={scrollViewRef}
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
           >
             {messages.map((msg, index) => {
               const isCurrentUser = msg.sender._id.toString() === userId;
               return (
-                <View
-                  key={msg._id || index}
-                  style={[
-                    styles.messageContainer,
-                    isCurrentUser ? styles.sentContainer : styles.receivedContainer,
-                  ]}
-                >
-                  <View style={[styles.messageBubble, isCurrentUser ? styles.sentMessage : styles.receivedMessage]}>
-                    <Text style={styles.messageText}>{msg.content}</Text>
-                  </View>
-                </View>
+                <MessageBubble key={msg._id || index} message={msg} isCurrentUser={isCurrentUser} />
               );
             })}
           </ScrollView>
@@ -267,7 +338,7 @@ export default function ChatScreen() {
           </View>
         </>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -296,8 +367,11 @@ const styles = StyleSheet.create({
   },
   chatContainer: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
     backgroundColor: customTheme.colors.surface,
+  },
+  scrollContent: {
+    paddingBottom: 20, // This creates the space between messages and input
   },
   headerTitle: {
     fontSize: 20,
@@ -329,10 +403,6 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 16,
-  },
-  timestamp: {
-    fontSize: 11,
-    marginTop: 4,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -368,5 +438,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  messageStatus: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusText: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  sentMessageText: {
+    color: '#fff',
+    marginRight: 20, // Make room for status icons
   },
 });

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import customTheme from '../theme';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
@@ -27,21 +28,6 @@ export default function MakeOfferScreen() {
         return;
       }
 
-      // Log request details for debugging
-      console.log('Making offer request:', {
-        url: `${API_URL}/api/offers`,
-        data: {
-          taskId,
-          amount: Number(amount),
-          message,
-          estimatedTime
-        },
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
       const response = await axios.post(
         `${API_URL}/api/offers`,
         {
@@ -58,11 +44,9 @@ export default function MakeOfferScreen() {
         }
       );
 
-      console.log('Offer response:', response.data);
       Alert.alert('Success', 'Your offer has been submitted');
       router.back();
-    } catch (error:any) {
-      console.error('Full error:', error.response || error);
+    } catch (error: any) {
       Alert.alert(
         'Error',
         error.response?.data?.message || 'Failed to submit offer'
@@ -89,6 +73,9 @@ export default function MakeOfferScreen() {
           keyboardType="numeric"
           mode="outlined"
           style={styles.input}
+          theme={{ colors: { primary: '#6200ee', background: '#ffffff', text: '#000000', placeholder: '#666666' } }}
+          outlineColor="#ddd"
+          activeOutlineColor="#6200ee"
         />
 
         <TextInput
@@ -100,6 +87,9 @@ export default function MakeOfferScreen() {
           numberOfLines={4}
           style={styles.input}
           placeholder="Explain why you're the best person for this task"
+          theme={{ colors: { primary: '#6200ee', background: '#ffffff', text: '#000000', placeholder: '#666666' } }}
+          outlineColor="#ddd"
+          activeOutlineColor="#6200ee"
         />
 
         <TextInput
@@ -109,6 +99,9 @@ export default function MakeOfferScreen() {
           mode="outlined"
           style={styles.input}
           placeholder="e.g., 2 hours, 3 days"
+          theme={{ colors: { primary: '#6200ee', background: '#ffffff', text: '#000000', placeholder: '#666666' } }}
+          outlineColor="#ddd"
+          activeOutlineColor="#6200ee"
         />
 
         <Button
@@ -140,11 +133,14 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+    backgroundColor: '#fff',
   },
   input: {
     marginBottom: 16,
+    backgroundColor: '#fff',
   },
   submitButton: {
     marginTop: 16,
+    backgroundColor:customTheme.colors.primary ,
   },
 });

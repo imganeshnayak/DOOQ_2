@@ -23,10 +23,19 @@ const messageSchema = new Schema({
     required: true,
     trim: true
   },
+  status: {
+    type: String,
+    enum: ['sending', 'sent', 'delivered', 'read', 'error'],
+    default: 'sent'
+  },
   read: {
     type: Boolean,
     default: false,
     index: true // Add this line for better query performance
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true

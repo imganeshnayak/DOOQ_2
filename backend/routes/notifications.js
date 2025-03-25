@@ -1,11 +1,15 @@
-import { Router } from 'express';
-import { getNotifications, getUnreadCount, markAsRead } from '../controllers/notificationController.js';
-import authMiddleware from '../middleware/auth.js';
+import express from 'express';
+import auth from '../middleware/auth.js';
+import { 
+  getNotifications, 
+  deleteNotification, 
+  deleteAllNotifications 
+} from '../controllers/notificationController.js';
 
-const router = Router();
+const router = express.Router();
 
-router.get('/', authMiddleware, getNotifications);
-router.get('/unread/count', authMiddleware, getUnreadCount);
-router.patch('/:notificationId/read', authMiddleware, markAsRead);
+router.get('/', auth, getNotifications);
+router.delete('/:id', auth, deleteNotification);
+router.delete('/', auth, deleteAllNotifications);
 
 export default router;

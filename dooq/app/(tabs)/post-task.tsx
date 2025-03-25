@@ -1,4 +1,4 @@
-import { View, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, ScrollView, Image, Modal, TouchableOpacity } from 'react-native';
 import { Text, TextInput, Button, Chip } from 'react-native-paper';
 import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
@@ -7,10 +7,47 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
-const CATEGORIES = ['Moving', 'Cleaning', 'Delivery', 'Assembly', 'Gardening', 'Painting', 'Pet Care', 'Tech Help'];
+const MAIN_CATEGORIES = ['Moving', 'Cleaning', 'Delivery', 'Assembly', 'Gardening', 'Painting', 'Pet Care', 'Tech Help'];
+const OTHER_CATEGORIES = [
+  'Accounting & Tax Services', 'Automobile Services',
+  'Beauty & Personal Care',
+  'Carpentry',
+  'Catering Services',
+  'Cooking & Home Chef',
+  'Delivery & Pickup Services',
+  'Documentation & Legal Help',
+  'Electrical',
+  'Event Help',
+  'Fitness & Wellness',
+  'Graphic Design & Video Editing',
+  'Handyman Services',
+  'Home Cleaning',
+  'Home Improvement',
+  'Home Renovation',
+  'Home Repairs',
+  'Language Translation & Content Writing',
+  'Laundry & Dry Cleaning',
+  'Marketing & Social Media',
+  'Moving & Relocation Services',
+  'Music & Dance Lessons',
+  'Online Tutoring & Coaching',
+  'Painting & Waterproofing',
+  'Pest Control',
+  'Personal Assistant',
+  'Pet Care & Grooming',
+  'Photography & Videography',
+  'Plumbing',
+  'Repair & Maintenance (Gadgets, AC, Fridge, TV, etc.)',
+  'Security & Surveillance',
+  'Tailoring & Alterations',
+  'Tech Help & IT Support',
+  'Other'
+];
+
 
 export default function PostTaskScreen() {
   const [title, setTitle] = useState('');
@@ -21,9 +58,12 @@ export default function PostTaskScreen() {
   const [zipcode, setZipcode] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [location, setLocation] = useState<{ latitude: number | null, longitude: number | null }>({ latitude: null, longitude: null });
-  const [dueDate, setDueDate] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showOtherCategories, setShowOtherCategories] = useState(false);
+  const [dueDate, setDueDate] = useState('');
 
   // Image picker function
   const pickImage = async () => {
@@ -68,6 +108,48 @@ export default function PostTaskScreen() {
     })();
   }, []);
 
+  // Date handling
+  useEffect(() => {
+    if (selectedDate) {
+      const formattedDate = selectedDate.toISOString().split('T')[0];
+      setDueDate(formattedDate);
+    }
+  }, [selectedDate]);
+
+  const handleDateChange = (event: any, date?: Date) => {
+    setShowDatePicker(false);
+    if (date) {
+      setSelectedDate(date);
+    }
+  };
+
+  const showDatepicker = () => {
+    DateTimePickerAndroid.open({
+      value: selectedDate || new Date(),
+      onChange: (event, date) => {
+        if (date) {
+          setSelectedDate(date);
+        }
+      },
+      mode: 'date',
+      minimumDate: new Date(),
+    });
+  };
+
+  // Category selection
+  const handleCategorySelect = (category: string) => {
+    if (category === 'Other') {
+      setShowOtherCategories(true);
+    } else {
+      setSelectedCategory(category);
+    }
+  };
+
+  const handleOtherCategorySelect = (category: string) => {
+    setSelectedCategory(category);
+    setShowOtherCategories(false);
+  };
+
   const handleSubmit = async () => {
     try {
       let token = await AsyncStorage.getItem('authToken');
@@ -108,6 +190,16 @@ export default function PostTaskScreen() {
       });
 
       console.log('Task created:', response.data);
+      setTitle('');
+      setDescription('');
+      setBudget('');
+      setAddress('');
+      setCity('');
+      setZipcode('');
+      setImage(null);
+      setSelectedCategory('');
+      setSelectedDate(null);
+      setDueDate('');
       router.push('/(tabs)');
     } catch (error: any) {
       console.error('Error creating task:', error.response?.data || error.message);
@@ -140,17 +232,25 @@ export default function PostTaskScreen() {
 
           <Text variant="titleMedium" style={styles.sectionTitle}>Category</Text>
           <View style={styles.categories}>
-            {CATEGORIES.map((category) => (
+            {MAIN_CATEGORIES.map((category) => (
               <Chip
                 key={category}
                 selected={selectedCategory === category}
-                onPress={() => setSelectedCategory(category)}
+                onPress={() => handleCategorySelect(category)}
                 style={styles.categoryChip}
                 showSelectedOverlay
               >
                 {category}
               </Chip>
             ))}
+            <Chip
+              selected={selectedCategory === 'Other' || OTHER_CATEGORIES.includes(selectedCategory)}
+              onPress={() => handleCategorySelect('Other')}
+              style={styles.categoryChip}
+              showSelectedOverlay
+            >
+              Other
+            </Chip>
           </View>
 
           <TextInput 
@@ -207,13 +307,55 @@ export default function PostTaskScreen() {
           {image && <Image source={{ uri: image }} style={styles.previewImage} />}
 
           <TextInput 
-            label="Due Date" 
-            value={dueDate} 
-            onChangeText={setDueDate} 
-            mode="outlined" 
-            placeholder="YYYY-MM-DD" 
-            style={styles.input} 
+        label="Due Date" 
+        value={dueDate} 
+        onChangeText={setDueDate} 
+        mode="outlined" 
+        placeholder="YYYY-MM-DD" 
+        style={styles.input}
+        right={
+          <TextInput.Icon 
+            icon="calendar" 
+            onPress={showDatepicker} 
           />
+        }
+      />
+
+          
+
+          <Modal
+            visible={showOtherCategories}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setShowOtherCategories(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text variant="titleLarge" style={styles.modalTitle}>Select Category</Text>
+                <ScrollView contentContainerStyle={styles.modalCategories}>
+                  {OTHER_CATEGORIES.map((category) => (
+                    <TouchableOpacity
+                      key={category}
+                      style={[
+                        styles.modalCategoryItem,
+                        selectedCategory === category && styles.selectedCategoryItem
+                      ]}
+                      onPress={() => handleOtherCategorySelect(category)}
+                    >
+                      <Text style={styles.modalCategoryText}>{category}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <Button 
+                  mode="outlined" 
+                  onPress={() => setShowOtherCategories(false)}
+                  style={styles.modalCloseButton}
+                >
+                  Close
+                </Button>
+              </View>
+            </View>
+          </Modal>
 
           <Button 
             mode="contained" 
@@ -282,5 +424,42 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 8,
     marginBottom: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: '60%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+  },
+  modalTitle: {
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalCategories: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  modalCategoryItem: {
+    padding: 12,
+    margin: 4,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+  },
+  selectedCategoryItem: {
+    backgroundColor: '#e0e0e0',
+  },
+  modalCategoryText: {
+    fontSize: 16,
+  },
+  modalCloseButton: {
+    marginTop: 16,
   },
 });

@@ -94,6 +94,7 @@ export const deleteTask = async (req, res) => {
     res.status(500).json({ message: 'Error deleting task', error: error.message });
   }
 };
+
 export const getTasksByZipcode = async (req, res) => {
   try {
       if (!req.user || !req.user.location || !req.user.location.zipcode) {
@@ -113,5 +114,60 @@ export const getTasksByZipcode = async (req, res) => {
   } catch (error) {
       console.error("Error fetching tasks by zipcode:", error);
       res.status(500).json({ message: "Server error while fetching tasks" });
+  }
+};
+
+export const searchTasks = async (req, res) => {
+  try {
+    const { query, categories, budgetRanges } = req.query;
+    console.log('Search params received:', { query, categories, budgetRanges });
+
+    const searchCriteria = {};
+
+    // Add category filter
+    if (categories) {
+      searchCriteria.category = { 
+        $in: categories.split(',') 
+      };
+    }
+
+    // Add budget filter
+    if (budgetRanges) {
+      const ranges = JSON.parse(budgetRanges);
+      if (Array.isArray(ranges) && ranges.length > 0) {
+        searchCriteria.$or = ranges.map(range => ({
+          budget: {
+            $gte: range.min,
+            ...(range.max !== Infinity && { $lte: range.max })
+          }
+        }));
+      }
+    }
+
+    // Add text search
+    if (query) {
+      searchCriteria.$and = [{
+        $or: [
+          { title: { $regex: query, $options: 'i' } },
+          { description: { $regex: query, $options: 'i' } }
+        ]
+      }];
+    }
+
+    console.log('Final search criteria:', JSON.stringify(searchCriteria, null, 2));
+
+    const tasks = await Task.find(searchCriteria)
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    console.log(`Found ${tasks.length} tasks`);
+    return res.json(tasks);
+
+  } catch (error) {
+    console.error('Search error:', error);
+    return res.status(500).json({
+      message: 'Error searching tasks',
+      error: error.message
+    });
   }
 };

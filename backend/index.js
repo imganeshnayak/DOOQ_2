@@ -43,9 +43,12 @@ app.set('io', io);
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/notifications', authMiddleware, notificationRoutes); // ✅ Register notification API
+app.use('/api/notifications', notificationRoutes); // Register notification API
 app.use('/api/messages', authMiddleware, messageRoutes); // ✅ Register message API
 app.get('/api/me', authMiddleware, getCurrentUser);
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 app.use('/api/offers', offerRoutes); // ✅ Ensure this line is present
 
@@ -82,7 +85,8 @@ io.on('connection', (socket) => {
         sender: socket.userId,
         receiver: receiverId,
         content: content.trim(),
-        read: false
+        read: false,
+        status: 'sent' // Initial status
       });
 
       await message.save();
@@ -91,24 +95,80 @@ io.on('connection', (socket) => {
         .populate('sender', 'name')
         .populate('receiver', 'name');
 
+      // Check if receiver is online
+      const receiverSocket = [...io.sockets.sockets.values()]
+        .find(s => s.userId === receiverId);
+
+      if (receiverSocket) {
+        // Update to delivered if receiver is online
+        populatedMessage.status = 'delivered';
+        await populatedMessage.save();
+      }
+
       // Send acknowledgement to sender
       if (callback) {
         callback({ 
           success: true, 
-          messageId: message._id.toString() 
+          messageId: message._id,
+          status: populatedMessage.status
         });
       }
 
-      // Emit to both sender and receiver
-      io.to(receiverId).to(socket.userId).emit('newMessage', populatedMessage);
+      // Emit to both users
+      io.to(socket.userId).to(receiverId).emit('newMessage', populatedMessage);
       io.to(receiverId).emit('conversationUpdate');
 
     } catch (error) {
-      console.error('❌ Socket message error:', error);
+      console.error('Socket message error:', error);
       if (callback) {
         callback({ success: false, error: 'Failed to send message' });
       }
-      socket.emit('messageError', { message: 'Failed to send message' });
+    }
+  });
+
+  socket.on('messageReceived', async ({ messageId }) => {
+    try {
+      const message = await Message.findById(messageId);
+      if (message) {
+        message.status = 'delivered';
+        await message.save();
+        io.to(message.sender.toString()).emit('messageDelivered', messageId);
+      }
+    } catch (error) {
+      console.error('Error marking message as delivered:', error);
+    }
+  });
+
+  socket.on('messageRead', async ({ messageId }) => {
+    try {
+      const message = await Message.findById(messageId);
+      if (message && message.receiver.toString() === socket.userId) {
+        // Update message status
+        message.status = 'read';
+        message.read = true;
+        await message.save();
+
+        // Notify sender about read status
+        io.to(message.sender.toString()).emit('messageRead', {
+          messageId: message._id.toString(),
+          status: 'read'
+        });
+
+        // Update unread count for the conversation
+        const unreadCount = await Message.countDocuments({
+          sender: message.sender,
+          receiver: socket.userId,
+          read: false
+        });
+
+        // Emit updated unread count
+        io.to(socket.userId).emit('unreadCountUpdate', {
+          senderId: message.sender.toString(),
+          count: unreadCount
+        });
+      }
+    } catch (error) {
+      console.error('Error marking message as read:', error);
     }
   });
 

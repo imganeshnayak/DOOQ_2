@@ -3,21 +3,21 @@ import { Text, Button, Surface, Chip } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 
-export default function ViewDetails() {
-  // Access task data from route params
-  const {
-    id,
-    title,
-    description,
-    budget,
-    category,
-    dueDate,
-    image,
-    location,
-  } = useLocalSearchParams();
+export default function ViewDetailsScreen() {
+  const params = useLocalSearchParams() as {
+    id: string;
+    title: string;
+    description: string;
+    budget: string;
+    category: string;
+    location: string;
+    image: string | null;
+    dueDate?: string;
+    status?: string;
+  };
 
   // Parse location if available
-  const taskLocation = location ? JSON.parse(location) : null;
+  const taskLocation = typeof params.location === 'string' ? JSON.parse(params.location) : null;
 
   return (
     <View style={styles.container}>
@@ -32,22 +32,22 @@ export default function ViewDetails() {
         {/* Task Info Card */}
         <Surface style={styles.card} elevation={1}>
           {/* Task Image */}
-          {image && (
+          {params.image && (
             <Image
-              source={{ uri: image }} // Use the image URL from params
+              source={typeof params.image === 'string' ? { uri: params.image } : undefined} // Ensure image is a string
               style={styles.taskImage}
             />
           )}
 
           <Text variant="titleLarge" style={styles.taskTitle}>
-            {title}
+            {params.title}
           </Text>
           
           <View style={styles.tags}>
-            <Chip style={styles.tag}>{category}</Chip>
+            <Chip style={styles.tag}>{params.category}</Chip>
           </View>
 
-          <Text style={styles.price}>Budget: ${budget}</Text>
+          <Text style={styles.price}>Budget: ${params.budget}</Text>
           
           <View style={styles.divider} />
 
@@ -55,7 +55,7 @@ export default function ViewDetails() {
             Description
           </Text>
           <Text style={styles.description}>
-            {description || 'No description available'}
+            {params.description || 'No description available'}
           </Text>
 
           {/* Location Section */}
@@ -75,7 +75,7 @@ export default function ViewDetails() {
             Timeline
           </Text>
           <Text style={styles.timelineText}>
-            Due Date: {new Date(dueDate).toLocaleDateString()}
+            Due Date: {Array.isArray(params.dueDate) || !params.dueDate ? 'Invalid date' : new Date(params.dueDate).toLocaleDateString()}
           </Text>
         </Surface>
       </ScrollView>
@@ -92,10 +92,14 @@ export default function ViewDetails() {
         <Button 
           mode="contained"
           onPress={() => router.push({
-            pathname: '/make-offer',
+            pathname: '/(tabs)/make-offer',
             params: {
-              id: id,    // Make sure to pass the task ID
-              title: title // Pass the task title for display
+              taskId: params.id,
+              taskTitle: params.title,
+              budget: params.budget,
+              category: params.category,
+              dueDate: params.dueDate || '',
+              status: params.status || 'open'
             }
           })}
           style={[styles.button, styles.makeOfferButton]}

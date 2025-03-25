@@ -15,6 +15,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: '#FF5733',
       }}>
+      {/* Main Tab Screens */}
       <Tabs.Screen
         name="index"
         options={{
@@ -80,25 +81,43 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Hidden Screens */}
+      {/* Hidden Screens - Choose ONE approach below */}
+
+      {/* APPROACH 1: Using href: null */}
       <Tabs.Screen
         name="view-details"
         options={{
-          href: null,
+          href: null
         }}
       />
       <Tabs.Screen
         name="make-offer"
         options={{
-          href: null,
+          href: null
         }}
       />
       <Tabs.Screen
         name="Notifications"
         options={{
-          href: null,
+          href: null
         }}
       />
+      <Tabs.Screen
+        name="search-results"
+        options={{
+          href: null
+        }}
+      />
+
+      {/* OR APPROACH 2: Using tabBarButton - but not both */}
+      {/* 
+      <Tabs.Screen
+        name="view-details"
+        options={{
+          tabBarButton: () => null
+        }}
+      />
+      */}
     </Tabs>
   );
 }

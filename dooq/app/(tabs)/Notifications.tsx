@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Surface, ActivityIndicator, Avatar } from 'react-native-paper';
+import { View, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { Text, Surface, ActivityIndicator, Avatar, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -10,7 +10,15 @@ import customTheme from '../theme';
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 export default function NotificationsScreen() {
-  const [notifications, setNotifications] = useState([]);
+  interface Notification {
+    _id: string;
+    senderId: string;
+    senderName: string;
+    message: string;
+    timestamp: string;
+  }
+
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +37,7 @@ export default function NotificationsScreen() {
 
       setNotifications(response.data);
       setError(null);
-    } catch (error:any) {
+    } catch (error: any) {
       console.error("Error fetching notifications:", error.response?.data || error.message);
       setError('Failed to load notifications');
     } finally {
@@ -41,34 +49,86 @@ export default function NotificationsScreen() {
     fetchNotifications();
   }, []);
 
-  const handleNotificationPress = (notification:any) => {
-    // Navigate to chat screen with the sender's ID and name
+  const handleNotificationPress = (notification: any) => {
     router.push({
       pathname: '/messages/[id]',
       params: { id: notification.senderId, name: notification.senderName },
     });
   };
 
-  const renderItem = ({ item }:{item:any}) => (
-    <TouchableOpacity
-      onPress={() => handleNotificationPress(item)}
-      style={styles.notificationItem}
-    >
-      <Avatar.Text
-        size={40}
-        label={item.senderName?.substring(0, 2).toUpperCase() || '??'}
-        style={{ backgroundColor: customTheme.colors.primary }}
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      await axios.delete(`${API_URL}/api/notifications/${notificationId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setNotifications(prev => prev.filter(n => n._id !== notificationId));
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      Alert.alert('Error', 'Failed to delete notification');
+    }
+  };
+
+  const clearAllNotifications = async () => {
+    Alert.alert(
+      'Clear Notifications',
+      'Are you sure you want to clear all notifications?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear All', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem('authToken');
+              if (!token) return;
+
+              await axios.delete(`${API_URL}/api/notifications`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+
+              setNotifications([]);
+            } catch (error) {
+              console.error("Error clearing notifications:", error);
+              Alert.alert('Error', 'Failed to clear notifications');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderItem = ({ item }: { item: any }) => (
+    <Surface style={styles.notificationItem} elevation={2}>
+      <TouchableOpacity
+        onPress={() => handleNotificationPress(item)}
+        style={styles.notificationContent}
+      >
+        <Avatar.Text
+          size={40}
+          label={item.senderName?.substring(0, 2).toUpperCase() || '??'}
+          style={{ backgroundColor: customTheme.colors.primary }}
+        />
+        <View style={styles.notificationDetails}>
+          <Text style={styles.notificationText}>{item.message}</Text>
+          <Text style={styles.time}>
+            {new Date(item.timestamp).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+        </View>
+      </TouchableOpacity>
+      <IconButton
+        icon="close"
+        size={20}
+        onPress={() => deleteNotification(item._id)}
+        style={styles.deleteButton}
       />
-      <View style={styles.notificationDetails}>
-        <Text style={styles.notificationText}>{item.message}</Text>
-        <Text style={styles.time}>
-          {new Date(item.timestamp).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
-      </View>
-    </TouchableOpacity>
+    </Surface>
   );
 
   if (loading) {
@@ -83,6 +143,11 @@ export default function NotificationsScreen() {
     <View style={styles.container}>
       <Surface style={styles.header} elevation={1}>
         <Text style={styles.headerTitle}>Notifications</Text>
+        {notifications.length > 0 && (
+          <TouchableOpacity onPress={clearAllNotifications}>
+            <Text style={styles.clearAllText}>Clear All</Text>
+          </TouchableOpacity>
+        )}
       </Surface>
 
       {error ? (
@@ -111,7 +176,7 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
   },
   header: {
     padding: 16,
@@ -127,15 +192,25 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
+  clearAllText: {
+    color: customTheme.colors.primary,
+    fontWeight: '500',
+  },
   list: {
     padding: 16,
   },
   notificationItem: {
     flexDirection: 'row',
-    padding: 16,
     marginBottom: 8,
     borderRadius: 8,
     backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  notificationContent: {
+    flexDirection: 'row',
+    flex: 1,
+    padding: 16,
   },
   notificationDetails: {
     flex: 1,
@@ -148,9 +223,10 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 12,
     color: '#999',
-    position: 'absolute',
-    right: 0,
-    top: 0,
+    marginTop: 4,
+  },
+  deleteButton: {
+    marginRight: 8,
   },
   centered: {
     justifyContent: 'center',

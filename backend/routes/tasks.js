@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createTask, getTasks, getTask, updateTask, deleteTask } from '../controllers/taskController.js';
+import { createTask, getTasks, getTask, updateTask, deleteTask ,searchTasks} from '../controllers/taskController.js';
 import auth from '../middleware/auth.js';
 
 const router = Router();
@@ -8,6 +8,8 @@ const router = Router();
 // router.use(auth);
 
 // Define your task routes here
+router.get('/search', auth, searchTasks);
+
 router.post('/', auth, createTask); // Correct path
 router.get('/', getTasks);
 router.get('/:id', getTask);

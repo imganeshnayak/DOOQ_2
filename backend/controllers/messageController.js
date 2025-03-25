@@ -59,15 +59,30 @@ export const getMessages = async (req, res) => {
     .populate('sender', 'name')
     .populate('receiver', 'name');
 
-    // Mark messages as read
-    await Message.updateMany(
-      {
-        sender: userId,
-        receiver: currentUserId,
-        read: false
-      },
-      { $set: { read: true } }
-    );
+    // Mark messages as read and delivered
+    const updatePromises = messages.map(async (message) => {
+      if (message.receiver.toString() === currentUserId) {
+        // Mark as read if current user is receiver
+        if (!message.read) {
+          message.status = 'read';
+          message.read = true;
+          await message.save();
+          
+          // Notify sender that message was read
+          const io = req.app.get('io');
+          if (io) {
+            io.to(message.sender.toString()).emit('messageRead', message._id);
+          }
+        }
+      } else if (message.status === 'sent') {
+        // Mark as delivered if current user is sender
+        message.status = 'delivered';
+        await message.save();
+      }
+      return message;
+    });
+
+    await Promise.all(updatePromises);
 
     res.json(messages);
   } catch (error) {
