@@ -1,4 +1,4 @@
-import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Image } from 'react-native';
 import { Text, Surface, ActivityIndicator, Avatar, FAB, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
@@ -11,13 +11,13 @@ import { io } from 'socket.io-client';
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 export default function MessagesScreen() {
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userAvatars, setUserAvatars] = useState<Record<string, string>>({});
 
-  // Fetch current user ID
   const fetchUserId = async () => {
     try {
       const userData = await AsyncStorage.getItem('userData');
@@ -33,6 +33,35 @@ export default function MessagesScreen() {
     }
   };
 
+  const fetchUserAvatars = async (userIds: string[]) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token || !userIds.length) return;
+
+      console.log('Fetching avatars for users:', userIds);
+
+      const response = await axios.post(
+        `${API_URL}/api/users/avatars`,
+        { userIds },
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
+
+      console.log('Avatar response:', response.data);
+
+      if (response.data) {
+        setUserAvatars(prev => ({ ...prev, ...response.data }));
+      }
+    } catch (error: any) {
+      console.error('Error fetching avatars:', error.response?.data || error.message);
+      // Don't show error to user, just fail silently and use fallback avatars
+    }
+  };
+
   const fetchData = async (showLoader = true) => {
     if (showLoader) setLoading(true);
     try {
@@ -42,18 +71,23 @@ export default function MessagesScreen() {
         return;
       }
 
-      // Fetch conversations
       const convResponse = await axios.get(`${API_URL}/api/messages/conversations`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // console.log("Fetched Conversations:", convResponse.data);
+      if (Array.isArray(convResponse.data)) {
+        setConversations(convResponse.data);
+        setError(null);
 
-      setConversations(convResponse.data);
-      setError(null);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setError('Failed to load data');
+        // Only fetch avatars if we have conversations
+        if (convResponse.data.length > 0) {
+          const userIds = convResponse.data.map((conv: any) => conv.userId);
+          await fetchUserAvatars(userIds);
+        }
+      }
+    } catch (error: any) {
+      console.error("Error fetching data:", error.response?.data || error.message);
+      setError('Failed to load messages');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -94,21 +128,36 @@ export default function MessagesScreen() {
   }, []);
 
   const renderItem = ({ item }: { item: any }) => {
+    const avatarUri = userAvatars[item.userId] || null;
+
     return (
       <TouchableOpacity
         onPress={() => {
           router.push({
             pathname: `/messages/[id]`,
-            params: { id: item.userId, userId: item.userId, name: item.userName }
+            params: { 
+              id: item.userId, 
+              userId: item.userId, 
+              name: item.userName,
+              avatar: avatarUri // Pass avatar URI to chat screen
+            }
           });
         }}
         style={styles.conversationItem}
       >
-        <Avatar.Text
-          size={48}
-          label={item.userName?.substring(0, 2).toUpperCase() || '??'}
-          style={{ backgroundColor: customTheme.colors.primary }}
-        />
+        {avatarUri ? (
+          <Image 
+            source={{ uri: avatarUri }} 
+            style={styles.avatarImage}
+          />
+        ) : (
+          <Avatar.Text
+            size={48}
+            label={item.userName?.substring(0, 2).toUpperCase() || '??'}
+            style={styles.avatarFallback}
+          />
+        )}
+        
         <View style={styles.conversationDetails}>
           <View style={styles.conversationHeader}>
             <Text style={styles.userName}>{item.userName}</Text>
@@ -146,12 +195,10 @@ export default function MessagesScreen() {
     <View style={styles.container}>
       <Surface style={styles.header} elevation={1}>
         <Text style={styles.headerTitle}>Messages</Text>
-
-        {/* Notification Icon in Header */}
         <IconButton
           icon="bell"
           size={24}
-          onPress={() => router.push('/(tabs)/Notifications')}
+          onPress={() => router.push('/notifications')}
           style={styles.bellIcon}
         />
       </Surface>
@@ -225,6 +272,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  avatarFallback: {
+    backgroundColor: customTheme.colors.primary,
   },
   conversationDetails: {
     flex: 1,

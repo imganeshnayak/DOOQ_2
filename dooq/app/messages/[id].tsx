@@ -9,7 +9,8 @@ import customTheme from '../theme';
 import { io, Socket } from 'socket.io-client';
 import { DefaultEventsMap } from '@socket.io/component-emitter';
 import { Stack } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, User } from 'lucide-react-native';
+import UserProfileModal from '../components/UserProfileModal';
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface Message {
@@ -115,6 +116,10 @@ export default function ChatScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [sentMessages] = useState(new Set());
+  const [userProfile, setUserProfile] = useState(null);
+  const [profileVisible, setProfileVisible] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -125,6 +130,17 @@ export default function ChatScreen() {
           style={styles.backButton}
         >
           <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity 
+          onPress={() => {
+            fetchUserProfile();
+            setProfileVisible(true);
+          }}
+          style={styles.profileButton}
+        >
+          <User size={24} color={customTheme.colors.primary} />
         </TouchableOpacity>
       ),
     });
@@ -267,7 +283,7 @@ export default function ChatScreen() {
     const tempId = `temp-${Date.now()}`;
 
     const tempMessage: Message = {
-      _id: tempId,
+      _id: tempId, 
       sender: { _id: userId || '', name: 'You' },
       receiver: { _id: receiverId, name: receiverName || 'Unknown' },
       content: messageContent,
@@ -304,6 +320,72 @@ export default function ChatScreen() {
     }
   };
 
+  const fetchUserProfile = async () => {
+    if (profileLoading) return;
+
+    try {
+      setProfileLoading(true);
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        Alert.alert('Error', 'Please login to view profile');
+        return;
+      }
+
+      const response = await axios.get(`${API_URL}/api/users/${receiverId}`, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.data) {
+        setUserProfile(response.data);
+        setProfileVisible(true);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      Alert.alert('Error', 'Failed to load user profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+// Add this useEffect after other effects
+useEffect(() => {
+  return () => {
+    setIsNavigating(false);
+    setProfileLoading(false);
+  };
+}, []);
+  const handleBack = () => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.push('/(tabs)/messages');
+    }
+  };
+
+  const handleSubmitReview = async (rating: number, comment: string) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+  
+      await axios.post(
+        `${API_URL}/api/users/${receiverId}/reviews`,
+        { rating, comment },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+  
+      // Refresh user profile to show new review
+      fetchUserProfile();
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      throw error;
+    }
+  };
+
   // Update the main return statement in ChatScreen
   return (
     <>
@@ -314,16 +396,24 @@ export default function ChatScreen() {
           headerTitleAlign: 'center',
           headerLeft: () => (
             <TouchableOpacity 
-              onPress={() => {
-                if (navigation.canGoBack()) {
-                  navigation.goBack();
-                } else {
-                  router.push('/(tabs)/messages');
-                }
-              }}
+              onPress={handleBack}
               style={styles.backButton}
+              disabled={isNavigating}
             >
               <ChevronLeft size={28} color={customTheme.colors.primary} />
+            </TouchableOpacity>
+          ),
+          headerRight: () => (
+            <TouchableOpacity 
+              onPress={fetchUserProfile}
+              style={styles.profileButton}
+              disabled={profileLoading}
+            >
+              {profileLoading ? (
+                <ActivityIndicator size="small" color={customTheme.colors.primary} />
+              ) : (
+                <User size={24} color={customTheme.colors.primary} />
+              )}
             </TouchableOpacity>
           ),
           headerStyle: {
@@ -351,13 +441,12 @@ export default function ChatScreen() {
               <Surface style={styles.inputSurface}>
                 <View style={styles.inputContainer}>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { maxHeight: 100 }]}
                     placeholder="Type a message..."
                     value={newMessage}
                     onChangeText={setNewMessage}
                     multiline
                     maxLength={500}
-                    maxHeight={100}
                     onSubmitEditing={handleSend}
                     blurOnSubmit={false}
                   />
@@ -377,6 +466,12 @@ export default function ChatScreen() {
           )}
         </View>
       </KeyboardAvoidingView>
+      <UserProfileModal
+        visible={profileVisible}
+        onClose={() => setProfileVisible(false)}
+        user={userProfile}
+        onSubmitReview={handleSubmitReview}
+      />
     </>
   );
 }
@@ -477,14 +572,24 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   backButton: {
-    padding: 8,
+    padding: 12,
     marginLeft: 4,
-    borderRadius: 20,
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    opacity: 1, // Add this
   },
   backButtonText: {
     fontSize: 24,
     color: customTheme.colors.primary,
+  },
+  profileButton: {
+    padding: 20,
+    marginRight: 8,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 50, // Add this
+    minHeight: 50, // Add this
   },
 });

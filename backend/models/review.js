@@ -1,19 +1,14 @@
 import mongoose from 'mongoose';
 
 const reviewSchema = new mongoose.Schema({
-  recipient: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
   reviewer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  task: {
+  targetUser: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task',
+    ref: 'User',
     required: true
   },
   rating: {
@@ -24,7 +19,8 @@ const reviewSchema = new mongoose.Schema({
   },
   comment: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   }
 }, {
   timestamps: true

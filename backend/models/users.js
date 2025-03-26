@@ -27,6 +27,14 @@ const userSchema = new Schema({
     type: String,
     required: true,
   },
+  phone: {
+    type: String,
+    default: ''
+  },
+  city: {
+    type: String,
+    default: ''
+  },
   memberSince: {
     type: Date,
     default: Date.now,
@@ -35,6 +43,10 @@ const userSchema = new Schema({
     type: Number,
     default: 0,
   },
+  reviews: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Review'
+  }],
   completedTasks: {
     type: Number,
     default: 0,
@@ -88,13 +100,22 @@ const userSchema = new Schema({
   }
 }, {
   timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-userSchema.virtual('reviews', {
+// Add the virtual field with a different name to avoid conflicts
+userSchema.virtual('userReviews', {
   ref: 'Review',
   localField: '_id',
-  foreignField: 'recipient'
+  foreignField: 'targetUser'
 });
+
+// Add a method to get reviews
+userSchema.methods.getReviews = async function() {
+  await this.populate('userReviews');
+  return this.userReviews;
+};
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

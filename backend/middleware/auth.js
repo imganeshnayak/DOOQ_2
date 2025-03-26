@@ -15,8 +15,11 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ message: "User not found" });
         }
 
+
         // Attach user details to the request object
         req.user = {
+            userId: user._id.toString(), // Ensure it's a string
+
             userId: user._id,
             name: user.name, // Include the user's name
         };

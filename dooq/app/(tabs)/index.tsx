@@ -113,7 +113,7 @@ export default function HomeScreen() {
         }
       } catch (reverseGeocodeError) {
         console.error('Reverse geocoding failed:', reverseGeocodeError);
-        setCurrentCity('Location details unavailable');
+        setCurrentCity('Location unavailable');
       }
 
       if (manualFetch) {
@@ -183,7 +183,7 @@ export default function HomeScreen() {
             {isLocationLoading ? (
               <ActivityIndicator size="small" color="#666" />
             ) : (
-              <Text style={styles.cityText}>{currentCity || 'Location details unavailable'}</Text>
+              <Text style={styles.cityText}>{currentCity || 'Location  unavailable'}</Text>
             )}
           </View>
         </View>

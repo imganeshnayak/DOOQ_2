@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import mongoose from 'mongoose';  // Add this line
+import cloudinary from '../config/cloudinary.js';
+import Review from '../models/Review.js';
 
 import { sendOTP } from '../services/emailService.js';
 
@@ -170,25 +172,42 @@ export const getProfile = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Get reviews for this user
+    const reviews = await Review.find({ targetUser: userId })
+      .populate('reviewer', 'name avatar')
+      .sort({ createdAt: -1 });
+
     const responseData = {
       user: {
+        id: user._id,
         avatar: user.avatar || 'https://via.placeholder.com/150',
         name: user.name,
         rating: user.rating || 0,
         completedTasks: user.completedTasks || 0,
         location: user.location || 'Not specified',
+        city: user.city || 'Not specified',
         memberSince: user.createdAt?.toLocaleDateString('en-US', { 
           month: 'long', 
           year: 'numeric' 
         }),
-        bio: user.bio || 'No bio provided'
+        bio: user.bio || 'No bio provided',
+        level: user.level
       },
       stats: {
         tasksCompleted: user.completedTasks || 0,
-        onTimeRate: '100%',
-        repeatClients: 0
+        onTimeRate: user.onTimeRate || 100,
+        repeatClients: user.repeatClients || 0
       },
-      reviews: []
+      reviews: reviews.map(review => ({
+        _id: review._id,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        reviewer: {
+          name: review.reviewer.name,
+          avatar: review.reviewer.avatar || 'https://via.placeholder.com/50'
+        }
+      }))
     };
 
     res.json(responseData);
@@ -204,45 +223,67 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, bio, location } = req.body;
-    const userId = req.user.userId;
+    const { name, phone, city } = req.body;
+    const userId = req.user.userId; // Fix: use userId from auth middleware
+
+    const updateFields = {};
+
+    // Only add fields that are present in the request
+    if (name) updateFields.name = name;
+    if (phone) updateFields.phone = phone;
+    if (city) updateFields.city = city;
+
+    // Handle avatar upload if present
+    if (req.file) {
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'profile_pictures',
+          width: 300,
+          crop: "scale"
+        });
+        updateFields.avatar = result.secure_url;
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to upload profile picture'
+        });
+      }
+    }
+
+    // Only update if there are fields to update
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update'
+      });
+    }
+
+    console.log('Updating user with ID:', userId, 'Fields:', updateFields);
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { 
-        $set: { 
-          name,
-          bio,
-          location
-        }
-      },
-      { new: true }
+      { $set: updateFields },
+      { new: true, runValidators: true }
     ).select('-password');
 
     if (!updatedUser) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
     res.json({
-      user: {
-        avatar: updatedUser.avatar,
-        name: updatedUser.name,
-        rating: updatedUser.rating || 0,
-        completedTasks: updatedUser.completedTasks || 0,
-        location: updatedUser.location || 'Not specified',
-        memberSince: updatedUser.createdAt?.toLocaleDateString('en-US', { 
-          month: 'long', 
-          year: 'numeric' 
-        }),
-        bio: updatedUser.bio || 'No bio provided'
-      }
+      success: true,
+      user: updatedUser
     });
-
   } catch (error) {
     console.error('Profile update error:', error);
-    res.status(500).json({ 
-      message: 'Error updating profile',
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update profile',
+      error: error.message
     });
   }
 };
@@ -375,5 +416,146 @@ export const updatePushToken = async (req, res) => {
   } catch (error) {
     console.error('Error updating push token:', error);
     res.status(500).json({ message: 'Error updating push token' });
+  }
+};
+
+export const getUserAvatars = async (req, res) => {
+  try {
+    const { userIds } = req.body;
+    
+    if (!Array.isArray(userIds)) {
+      return res.status(400).json({ message: 'userIds must be an array' });
+    }
+
+    const users = await User.find(
+      { _id: { $in: userIds } },
+      'avatar _id'
+    );
+
+    const avatarMap = users.reduce((acc, user) => {
+      acc[user._id] = user.avatar || '';
+      return acc;
+    }, {});
+
+    res.json(avatarMap);
+  } catch (error) {
+    console.error('Error fetching avatars:', error);
+    res.status(500).json({ message: 'Error fetching avatars' });
+  }
+};
+
+export const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Get reviews for this user
+    const reviews = await Review.find({ targetUser: user._id })
+        .populate('reviewer', 'name avatar')
+        .sort({ createdAt: -1 });
+
+    res.json({
+        id: user._id,
+        name: user.name,
+        avatar: user.avatar,
+        bio: user.bio,
+        city: user.city,
+        rating: user.rating,
+        level: user.level,
+        completedTasks: user.completedTasks,
+        reviews: reviews.map(review => ({
+            _id: review._id,
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt,
+            reviewer: {
+                name: review.reviewer.name,
+                avatar: review.reviewer.avatar
+            }
+        }))
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ message: 'Error fetching user profile' });
+  }
+};
+
+export const createReview = async (req, res) => {
+  try {
+      const { rating, comment } = req.body;
+      const targetUserId = req.params.userId;
+      
+      // Get reviewerId from req.user.userId instead of req.user._id
+      const reviewerId = req.user.userId;
+
+      console.log('Creating review with data:', {
+          rating,
+          comment,
+          targetUserId,
+          reviewerId
+      });
+
+      // Input validation
+      if (!rating || rating < 1 || rating > 5) {
+          return res.status(400).json({ message: 'Invalid rating' });
+      }
+
+      if (!comment || comment.trim().length === 0) {
+          return res.status(400).json({ message: 'Review comment is required' });
+      }
+
+      // Prevent self-review
+      if (targetUserId === reviewerId) {
+          return res.status(400).json({ message: 'Cannot review yourself' });
+      }
+
+      // Check if user exists
+      const targetUser = await User.findById(targetUserId);
+      if (!targetUser) {
+          return res.status(404).json({ message: 'Target user not found' });
+      }
+
+      // Check for existing review
+      const existingReview = await Review.findOne({
+          reviewer: reviewerId,
+          targetUser: targetUserId
+      });
+
+      if (existingReview) {
+          return res.status(400).json({ message: 'You have already reviewed this user' });
+      }
+
+      // Create review
+      const review = await Review.create({
+          reviewer: reviewerId,
+          targetUser: targetUserId,
+          rating: Number(rating),
+          comment: comment.trim()
+      });
+
+      // Update user's average rating
+      const reviews = await Review.find({ targetUser: targetUserId });
+      const avgRating = reviews.reduce((acc, rev) => acc + rev.rating, 0) / reviews.length;
+
+      await User.findByIdAndUpdate(targetUserId, {
+          rating: Number(avgRating.toFixed(1))
+      });
+
+      // Return populated review
+      const populatedReview = await Review.findById(review._id)
+          .populate('reviewer', 'name avatar')
+          .lean();
+
+      res.status(201).json(populatedReview);
+
+  } catch (error) {
+      console.error('Error creating review:', error);
+      res.status(500).json({ 
+          message: 'Error creating review',
+          error: error.message 
+      });
   }
 };
