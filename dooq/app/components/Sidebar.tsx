@@ -1,10 +1,15 @@
-import { View, StyleSheet, TouchableOpacity, Animated } from 'react-native';
-import { Text, Divider } from 'react-native-paper';
-import { Settings, LogOut, HelpCircle, Bell, Shield, X } from 'lucide-react-native';
+import { View, StyleSheet, TouchableOpacity, Animated, Alert } from 'react-native';
+import { Text, Divider, ActivityIndicator } from 'react-native-paper';
+import { Settings, LogOut, HelpCircle, Bell, Shield, X, Briefcase } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import axios from 'axios';
 import customTheme from '../theme';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+// Get API URL from Expo Constants
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface SidebarProps {
   visible: boolean;
@@ -13,6 +18,7 @@ interface SidebarProps {
 
 export default function Sidebar({ visible, onClose }: SidebarProps) {
   const router = useRouter();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const translateX = new Animated.Value(visible ? 0 : -300);
 
   useEffect(() => {
@@ -24,9 +30,66 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
   }, [visible]);
 
   const handleLogout = async () => {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('userId');
-    router.replace('/(auth)/login');
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsLoggingOut(true);
+              
+              // Get token before clearing storage
+              const token = await AsyncStorage.getItem('authToken');
+              
+              // Call logout endpoint if API_URL is configured
+              if (token && API_URL) {
+                try {
+                  await axios.post(
+                    `${API_URL}/api/auth/logout`,
+                    {},
+                    { 
+                      headers: { 
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                      }
+                    }
+                  );
+                } catch (error) {
+                  console.log('Logout API error:', error);
+                  // Continue with local logout even if API fails
+                }
+              }
+
+              // Clear all auth-related data
+              await AsyncStorage.multiRemove([
+                'authToken',
+                'userId',
+                'userProfile',
+                'preferences'
+              ]);
+
+              // Navigate to login screen
+              router.replace('/(auth)/login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert(
+                'Error',
+                'Failed to logout. Please try again.'
+              );
+            } finally {
+              setIsLoggingOut(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -55,6 +118,21 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
         </View>
         <Divider />
         <View style={styles.content}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => {
+              router.push('/my-tasks');
+              onClose();
+            }}
+          >
+            <Briefcase size={24} color={customTheme.colors.primary} />
+            <Text style={[styles.menuText, { color: customTheme.colors.primary }]}>
+              My Tasks
+            </Text>
+          </TouchableOpacity>
+
+          <Divider style={styles.divider} />
+
           <TouchableOpacity 
             style={styles.menuItem}
             onPress={() => {
@@ -102,11 +180,18 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
         <TouchableOpacity 
           style={styles.logoutButton}
           onPress={handleLogout}
+          disabled={isLoggingOut}
         >
-          <LogOut size={24} color={customTheme.colors.error} />
-          <Text style={[styles.menuText, { color: customTheme.colors.error }]}>
-            Logout
-          </Text>
+          {isLoggingOut ? (
+            <ActivityIndicator size="small" color={customTheme.colors.error} />
+          ) : (
+            <>
+              <LogOut size={24} color={customTheme.colors.error} />
+              <Text style={[styles.menuText, { color: customTheme.colors.error }]}>
+                Logout
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
       </Animated.View>
     </>
@@ -167,8 +252,15 @@ const styles = StyleSheet.create({
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center', // Center content when showing loading spinner
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: customTheme.colors.outline,
+    minHeight: 56, // Ensure consistent height during loading
+  },
+  divider: {
+    marginVertical: 8,
+    backgroundColor: customTheme.colors.outline,
+    height: 1,
   },
 });

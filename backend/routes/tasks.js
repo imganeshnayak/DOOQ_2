@@ -1,19 +1,27 @@
 import { Router } from 'express';
-import { createTask, getTasks, getTask, updateTask, deleteTask ,searchTasks} from '../controllers/taskController.js';
-import auth from '../middleware/auth.js';
+import { 
+    createTask, 
+    getTasks, 
+    getTask, 
+    updateTask, 
+    deleteTask,
+    searchTasks, 
+    getMyTasks, 
+    updateTaskStatus
+} from '../controllers/taskController.js';
+import authMiddleware from '../middleware/auth.js';
 
 const router = Router();
 
-// Apply the auth middleware to all routes in this file
-// router.use(auth);
+// Protected routes (require authentication)
+router.get('/my-tasks', authMiddleware, getMyTasks);
+router.get('/search', authMiddleware, searchTasks);
+router.post('/', authMiddleware, createTask);
+router.put('/:taskId/status', authMiddleware, updateTaskStatus);
+router.delete('/:taskId', authMiddleware, deleteTask);
 
-// Define your task routes here
-router.get('/search', auth, searchTasks);
-
-router.post('/', auth, createTask); // Correct path
+// Public routes
 router.get('/', getTasks);
-router.get('/:id', getTask);
-router.put('/:id', updateTask);
-router.delete('/:id', deleteTask);
+router.get('/:taskId', getTask);
 
 export default router;

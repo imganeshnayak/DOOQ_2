@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createOffer, getOffers } from '../controllers/offerController.js';
+import { createOffer, getOffers, getOffersForTask } from '../controllers/offerController.js';
 import authMiddleware from '../middleware/auth.js';
 
 const router = Router();
@@ -9,5 +9,6 @@ router.post('/', authMiddleware, createOffer);
 // Get all offers
 router.get('/', authMiddleware, getOffers);
 router.get('/', getOffers);
+router.get('/task/:taskId', authMiddleware, getOffersForTask);
 
 export default router;

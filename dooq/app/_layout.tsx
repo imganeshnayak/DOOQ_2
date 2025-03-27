@@ -52,11 +52,11 @@ export default function RootLayout() {
         />
         <Stack.Screen 
           name="(auth)"
-          options={{ animation: 'slide_from_right' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen 
           name="(tabs)"
-          options={{ animation: 'slide_from_bottom' }}
+          options={{ headerShown: false }}
         />
       </Stack>
     </PaperProvider>

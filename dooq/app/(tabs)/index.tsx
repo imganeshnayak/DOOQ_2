@@ -5,15 +5,18 @@ import {
   Text, Card, Button, Chip, Searchbar, FAB, Surface, IconButton, ActivityIndicator 
 } from 'react-native-paper';
 import { useState, useEffect } from 'react';
-import { RelativePathString, router } from 'expo-router';
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Logo from '../components/Logo';
 import axios from 'axios';
 import Constants from 'expo-constants';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const CATEGORIES = ['All', 'Moving', 'Cleaning', 'Delivery', 'Assembly', 'Gardening'];
+const LOCATION_CACHE_KEY = 'user_location_cache';
+const MAX_CACHE_AGE_HOURS = 24;
 
 type Task = {
   _id: string;
@@ -25,11 +28,18 @@ type Task = {
     city?: string;
   };
   category: string;
+  status: string;
   dueDate: string;
   image?: string;
 };
 
-// Haversine formula to calculate distance
+type CachedLocation = {
+  latitude: number;
+  longitude: number;
+  city?: string;
+  timestamp: number;
+};
+
 const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   const toRadians = (degrees: number) => degrees * (Math.PI / 180);
   const R = 6371;
@@ -44,6 +54,38 @@ const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
+const saveLocationToCache = async (location: CachedLocation) => {
+  try {
+    const locationWithTimestamp = {
+      ...location,
+      timestamp: Date.now()
+    };
+    await AsyncStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify(locationWithTimestamp));
+  } catch (error) {
+    console.error('Error saving location to cache:', error);
+  }
+};
+
+const loadLocationFromCache = async (): Promise<CachedLocation | null> => {
+  try {
+    const cachedLocation = await AsyncStorage.getItem(LOCATION_CACHE_KEY);
+    if (!cachedLocation) return null;
+
+    const parsedLocation: CachedLocation = JSON.parse(cachedLocation);
+    const cacheAgeHours = (Date.now() - parsedLocation.timestamp) / (1000 * 60 * 60);
+
+    if (cacheAgeHours > MAX_CACHE_AGE_HOURS) {
+      await AsyncStorage.removeItem(LOCATION_CACHE_KEY);
+      return null;
+    }
+
+    return parsedLocation;
+  } catch (error) {
+    console.error('Error loading location from cache:', error);
+    return null;
+  }
+};
+
 export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,12 +94,10 @@ export default function HomeScreen() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isLocationLoading, setIsLocationLoading] = useState(true);
-  const [currentCity, setCurrentCity] = useState<string | null>(null); // State for current city name
+  const [currentCity, setCurrentCity] = useState<string | null>(null);
 
-  // Fetch tasks from API
   const fetchTasks = async () => {
     try {
-      console.log('Fetching tasks...');
       const response = await axios.get(`${API_URL}/api/tasks`);
       setTasks(response.data);
     } catch (error) {
@@ -65,10 +105,22 @@ export default function HomeScreen() {
     }
   };
 
-  // Get user location and reverse geocode to get city name
   const getLocation = async (manualFetch = false) => {
     setIsLocationLoading(true);
     setLocationError(null);
+
+    if (!manualFetch) {
+      const cachedLocation = await loadLocationFromCache();
+      if (cachedLocation) {
+        setUserLocation({
+          latitude: cachedLocation.latitude,
+          longitude: cachedLocation.longitude,
+        });
+        if (cachedLocation.city) {
+          setCurrentCity(cachedLocation.city);
+        }
+      }
+    }
 
     try {
       const enabled = await Location.hasServicesEnabledAsync();
@@ -91,26 +143,35 @@ export default function HomeScreen() {
         return;
       }
 
-      // Fetch user's current location
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
 
-      setUserLocation({
+      const newLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
+      };
+
+      setUserLocation(newLocation);
 
       try {
-        // Reverse geocode to get city name
         const address = await Location.reverseGeocodeAsync({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         });
 
+        let cityName = 'Unknown Location';
         if (address.length > 0) {
-          setCurrentCity(address[0].city || address[0].region || 'Unknown Location');
+          cityName = address[0].city || address[0].region || 'Unknown Location';
         }
+        setCurrentCity(cityName);
+
+        await saveLocationToCache({
+          ...newLocation,
+          city: cityName,
+          timestamp: Date.now()
+        });
+
       } catch (reverseGeocodeError) {
         console.error('Reverse geocoding failed:', reverseGeocodeError);
         setCurrentCity('Location unavailable');
@@ -129,11 +190,21 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchTasks();
-    getLocation();
+    loadLocationFromCache().then(cachedLocation => {
+      if (cachedLocation) {
+        setUserLocation({
+          latitude: cachedLocation.latitude,
+          longitude: cachedLocation.longitude,
+        });
+        if (cachedLocation.city) {
+          setCurrentCity(cachedLocation.city);
+        }
+      }
+      getLocation();
+    });
   }, []);
 
   useEffect(() => {
-    // Re-fetch tasks when location updates
     if (userLocation) {
       fetchTasks();
     }
@@ -145,6 +216,9 @@ export default function HomeScreen() {
   };
 
   const filteredTasks = tasks.filter(task => {
+    // Skip completed tasks
+    if (task.status === 'completed') return false;
+
     const matchesSearchAndCategory =
       (selectedCategory === 'All' || task.category === selectedCategory) &&
       task.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -183,7 +257,7 @@ export default function HomeScreen() {
             {isLocationLoading ? (
               <ActivityIndicator size="small" color="#666" />
             ) : (
-              <Text style={styles.cityText}>{currentCity || 'Location  unavailable'}</Text>
+              <Text style={styles.cityText}>{currentCity || 'Location unavailable'}</Text>
             )}
           </View>
         </View>
@@ -250,8 +324,8 @@ export default function HomeScreen() {
                     budget: task.budget,
                     category: task.category,
                     dueDate: task.dueDate,
-                    image: task.image ? encodeURIComponent(task.image) : null, // ✅ Encode URL to prevent issues
-                    location: JSON.stringify(task.location), // Convert object to string
+                    image: task.image ? encodeURIComponent(task.image) : null,
+                    location: JSON.stringify(task.location),
                   },
                 })}
               >
@@ -313,9 +387,6 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
   },
-  categoryChip: {
-    marginRight: 8,
-  },
   content: {
     flex: 1,
     padding: 16,
@@ -338,17 +409,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 8,
   },
-  taskTitle: {
-    flex: 1,
-    fontFamily: 'Poppins-SemiBold',
-  },
   price: {
-    color: '#FF5733', // Orange color for price
+    color: '#FF5733',
     fontFamily: 'Poppins-SemiBold',
-  },
-  description: {
-    marginBottom: 16,
-    color: '#666',
   },
   tags: {
     flexDirection: 'row',

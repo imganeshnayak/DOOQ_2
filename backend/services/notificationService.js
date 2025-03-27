@@ -1,29 +1,44 @@
 import { Expo } from 'expo-server-sdk';
 import User from '../models/users.js';
 
-// Create a new Expo SDK client
 let expo = new Expo();
 
-export const sendPushNotification = async (userId, title, body, data = {}) => {
+// Add sound configuration for different notification types
+const NOTIFICATION_SOUNDS = {
+  message: 'message.wav',
+  offer: 'offer.wav',
+  task: 'task.wav',
+  default: 'default'
+};
+
+export const sendPushNotification = async (userId, title, body, data = {}, notificationType = 'default') => {
   try {
-    // Get user's Expo push token
     const user = await User.findById(userId);
     if (!user?.expoPushToken) return;
 
-    // Check that all your push tokens appear to be valid Expo push tokens
     if (!Expo.isExpoPushToken(user.expoPushToken)) {
       console.error(`Push token ${user.expoPushToken} is not a valid Expo push token`);
       return;
     }
 
-    // Construct the message
+    // Get the appropriate sound for the notification type
+    const sound = NOTIFICATION_SOUNDS[notificationType] || NOTIFICATION_SOUNDS.default;
+
+    // Construct the message with enhanced configuration
     const message = {
       to: user.expoPushToken,
-      sound: 'default',
+      sound,
       title,
       body,
-      data,
+      data: {
+        ...data,
+        notificationType,
+        timestamp: new Date().toISOString()
+      },
       priority: 'high',
+      // Add Android channel configuration
+      _displayInForeground: true,
+      androidChannelId: notificationType
     };
 
     try {
@@ -46,6 +61,49 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
     }
   } catch (error) {
     console.error('Error in sendPushNotification:', error);
+  }
+};
+
+// Add a new function to handle different notification types
+export const sendTypedNotification = async (params) => {
+  const { userId, type, title, body, data } = params;
+
+  switch (type) {
+    case 'message':
+      return sendPushNotification(
+        userId,
+        title || 'New Message',
+        body,
+        data,
+        'message'
+      );
+
+    case 'offer':
+      return sendPushNotification(
+        userId,
+        title || 'New Offer',
+        body,
+        data,
+        'offer'
+      );
+
+    case 'task':
+      return sendPushNotification(
+        userId,
+        title || 'Task Update',
+        body,
+        data,
+        'task'
+      );
+
+    default:
+      return sendPushNotification(
+        userId,
+        title,
+        body,
+        data,
+        'default'
+      );
   }
 };
 

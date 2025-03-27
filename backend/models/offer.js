@@ -1,4 +1,5 @@
 import { Schema, model } from 'mongoose';
+import mongoose from 'mongoose';
 
 const offerSchema = new Schema({
   task: {
@@ -30,6 +31,22 @@ const offerSchema = new Schema({
   }
 }, {
   timestamps: true
+});
+
+// Update middleware to also update task's lastOfferAt field
+offerSchema.post('save', async function(doc) {
+  try {
+    const Task = mongoose.model('Task');
+    await Task.findByIdAndUpdate(
+      doc.task,
+      { 
+        $addToSet: { offers: doc._id },
+        lastOfferAt: new Date() // Add this timestamp
+      }
+    );
+  } catch (error) {
+    console.error('Error updating task offers:', error);
+  }
 });
 
 export default model('Offer', offerSchema);

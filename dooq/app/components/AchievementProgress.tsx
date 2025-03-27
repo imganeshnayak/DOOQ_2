@@ -7,9 +7,7 @@ import customTheme from '../theme';
 const { width } = Dimensions.get('window');
 
 interface Props {
-  currentLevel: string;
   completedTasks: number;
-  points: number;
   badges: Array<{
     name: string;
     unlockedAt: string;
@@ -22,6 +20,7 @@ const LEVELS = [
     color: '#CD7F32',
     icon: '🥉',
     tasksRequired: 10,
+    pointsPerTask: 10,
     perks: ['Basic Profile Badge', 'Task Notifications']
   },
   {
@@ -29,6 +28,7 @@ const LEVELS = [
     color: '#C0C0C0',
     icon: '🥈',
     tasksRequired: 25,
+    pointsPerTask: 15,
     perks: ['Priority Support', 'Custom Profile Banner']
   },
   {
@@ -36,6 +36,7 @@ const LEVELS = [
     color: '#FFD700',
     icon: '🥇',
     tasksRequired: 50,
+    pointsPerTask: 20,
     perks: ['Featured in Search', 'Special Task Badge']
   },
   {
@@ -43,6 +44,7 @@ const LEVELS = [
     color: '#E5E4E2',
     icon: '🏆',
     tasksRequired: 100,
+    pointsPerTask: 25,
     perks: ['Verified Status', 'Early Access Features']
   },
   {
@@ -50,14 +52,13 @@ const LEVELS = [
     color: '#B9F2FF',
     icon: '💎',
     tasksRequired: 200,
+    pointsPerTask: 30,
     perks: ['Elite Badge', 'Commission Free']
   }
 ];
 
 export default function AchievementProgress({ 
-  currentLevel, 
-  completedTasks, 
-  points,
+  completedTasks,
   badges 
 }: Props) {
   // Animation values
@@ -67,12 +68,54 @@ export default function AchievementProgress({
   const badgeScaleAnim = badges.map(() => new Animated.Value(0));
   const [expanded, setExpanded] = React.useState(false);
 
-  // Get current level info
-  const currentLevelIndex = LEVELS.findIndex(l => l.name === currentLevel);
-  const nextLevel = LEVELS[currentLevelIndex + 1];
-  const progress = nextLevel 
-    ? (completedTasks / nextLevel.tasksRequired) * 100 
+  // Calculate current level and points
+  const calculateLevelAndPoints = () => {
+    let levelIndex = 0;
+    let points = 0;
+    let remainingTasks = completedTasks;
+
+    // Calculate points and determine current level
+    for (let i = 0; i < LEVELS.length; i++) {
+      const level = LEVELS[i];
+      if (remainingTasks <= 0) break;
+
+      if (i === LEVELS.length - 1 || remainingTasks < LEVELS[i + 1].tasksRequired) {
+        // Add points for remaining tasks at current level rate
+        points += remainingTasks * level.pointsPerTask;
+        levelIndex = i;
+        break;
+      } else {
+        // Add points for all tasks in this level range
+        const tasksInLevel = LEVELS[i + 1].tasksRequired - level.tasksRequired;
+        points += tasksInLevel * level.pointsPerTask;
+        remainingTasks -= tasksInLevel;
+        levelIndex = i + 1;
+      }
+    }
+
+    return {
+      currentLevel: LEVELS[levelIndex],
+      nextLevel: LEVELS[levelIndex + 1],
+      points,
+      levelIndex
+    };
+  };
+
+  const { currentLevel, nextLevel, points, levelIndex } = calculateLevelAndPoints();
+  const progressPercentage = nextLevel 
+    ? Math.min(((completedTasks - currentLevel.tasksRequired) / 
+               (nextLevel.tasksRequired - currentLevel.tasksRequired)) * 100, 100)
     : 100;
+
+  // Animate progress when completedTasks changes
+  React.useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progressPercentage,
+      duration: 1000,
+      easing: Easing.out(Easing.exp),
+      useNativeDriver: false,
+    }).start();
+  }, [completedTasks, progressPercentage]);
 
   React.useEffect(() => {
     // Main entrance animations
@@ -86,12 +129,6 @@ export default function AchievementProgress({
         toValue: 1,
         friction: 6,
         useNativeDriver: true,
-      }),
-      Animated.timing(progressAnim, {
-        toValue: progress,
-        duration: 1500,
-        easing: Easing.out(Easing.exp),
-        useNativeDriver: false,
       })
     ]).start(() => {
       // Staggered badge animations
@@ -133,12 +170,12 @@ export default function AchievementProgress({
           <TouchableOpacity onPress={toggleExpand} style={styles.header}>
             <View style={styles.levelIconContainer}>
               <Text style={[styles.levelIcon, { fontSize: 32 }]}>
-                {LEVELS[currentLevelIndex].icon}
+                {currentLevel.icon}
               </Text>
             </View>
             <View style={styles.titleContainer}>
               <Text variant="titleLarge" style={styles.title}>
-                {currentLevel} LEVEL
+                {currentLevel.name} LEVEL
               </Text>
               <Animated.View style={styles.pointsContainer}>
                 <Star size={16} color="#FFD700" />
@@ -160,7 +197,7 @@ export default function AchievementProgress({
                   styles.progressFill,
                   { 
                     width: animatedWidth,
-                    backgroundColor: LEVELS[currentLevelIndex].color
+                    backgroundColor: currentLevel.color
                   }
                 ]} 
               />
@@ -182,11 +219,11 @@ export default function AchievementProgress({
                       styles.badgeItem,
                       { 
                         transform: [{ scale: badgeScaleAnim[index] }],
-                        borderColor: LEVELS[currentLevelIndex].color
+                        borderColor: currentLevel.color
                       }
                     ]}
                   >
-                    <Trophy size={24} color={LEVELS[currentLevelIndex].color} />
+                    <Trophy size={24} color={currentLevel.color} />
                     <Text style={styles.badgeName} numberOfLines={1}>
                       {badge.name}
                     </Text>
@@ -211,7 +248,7 @@ export default function AchievementProgress({
               {nextLevel ? (
                 nextLevel.perks.map((perk, index) => (
                   <View key={index} style={styles.perkItem}>
-                    <Star size={16} color={LEVELS[currentLevelIndex + 1].color} />
+                    <Star size={16} color={nextLevel.color} />
                     <Text style={styles.perkText}>{perk}</Text>
                   </View>
                 ))
@@ -225,6 +262,7 @@ export default function AchievementProgress({
     </Animated.View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

@@ -78,7 +78,7 @@ const taskSchema = new Schema({
       },
   status: {
     type: String,
-    enum: ['open', 'assigned', 'completed'],
+    enum: ['open', 'assigned', 'completed', 'cancelled'],
     default: 'open'
   },
   dueDate: {
@@ -89,9 +89,34 @@ const taskSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  offers: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Offer'
+  }],
+  lastOfferAt: {
+    type: Date,
+    default: null
+  },
+  assignedTo: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   }
 }, {
   timestamps: true
 });
+
+// Add a pre-find middleware to always populate offers
+taskSchema.pre('find', function() {
+  this.populate('offers');
+});
+
+// Add a method to update offers count
+taskSchema.methods.updateOffersCount = async function() {
+  const offersCount = await mongoose.model('Offer').countDocuments({ task: this._id });
+  this.offersCount = offersCount;
+  return this.save();
+};
 
 export default model('Task', taskSchema);

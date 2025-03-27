@@ -115,3 +115,20 @@ export const getOffers = async (req, res) => {
     res.status(500).json({ message: 'Error fetching offers', error: error.message });
   }
 };
+
+export const getOffersForTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    const offers = await Offer.find({ task: taskId })
+      .populate('tasker', 'name avatar rating completedTasks')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(offers);
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Error fetching offers', 
+      error: error.message 
+    });
+  }
+};

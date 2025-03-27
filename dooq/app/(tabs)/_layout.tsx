@@ -97,7 +97,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="Notifications"
+        name="NotificationsBadgeScreen"
         options={{
           href: null
         }}
@@ -108,6 +108,8 @@ export default function TabLayout() {
           href: null
         }}
       />
+      <Tabs.Screen name="EditProfileScreen" options={{href:null}} />
+
 
       {/* OR APPROACH 2: Using tabBarButton - but not both */}
       {/* 

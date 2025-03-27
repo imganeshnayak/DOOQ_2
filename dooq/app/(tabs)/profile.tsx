@@ -1,28 +1,26 @@
-import { View, StyleSheet, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, ActivityIndicator, Alert, TouchableOpacity, RefreshControl } from 'react-native';
 import { Text, Button, Avatar, Card } from 'react-native-paper';
-import { Star, MapPin, Calendar, Menu } from 'lucide-react-native';
+import { Star, MapPin, Calendar, Menu, RefreshCw } from 'lucide-react-native';
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import customTheme from '../theme';
-import { useRouter } from 'expo-router';
-import EditProfileModal from '../components/EditProfileModal';
+import { useRouter, useFocusEffect } from 'expo-router';
 import AchievementProgress from '../components/AchievementProgress';
 import Sidebar from '../components/Sidebar';
-import React from 'react';
 
-const API_URL = Constants.expoConfig?.extra?.API_URL; 
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface ProfileData {
   user: {
+    id: string;
     city: string;
     phone: string;
     avatar: string;
     name: string;
     rating: number;
     completedTasks: number;
-    location: string;
     memberSince: string;
     bio: string;
     level: string;
@@ -48,25 +46,16 @@ interface ProfileData {
   }>;
 }
 
-const formatLocation = (city: string | undefined | null) => {
-  return city?.trim() || 'City not set';
-};
-
 export default function ProfileScreen() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showAllReviews, setShowAllReviews] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
   const fetchProfile = async () => {
     try {
-      setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
       
       if (!token) {
@@ -83,7 +72,6 @@ export default function ProfileScreen() {
       });
 
       if (response.data) {
-        console.log('Profile data:', response.data); // Add this log to debug
         setProfileData(response.data);
       }
     } catch (error: any) {
@@ -94,52 +82,36 @@ export default function ProfileScreen() {
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleUpdateProfile = async (formData: FormData) => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      
-      if (!token) {
-        router.replace('/(auth)/login');
-        return;
-      }
-  
-      const response = await axios.put(
-        `${API_URL}/api/users/profile`,
-        formData,
-        {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data'
-          }
+  // Manual refresh function
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchProfile();
+  }, []);
+
+  // Automatic refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchProfile();
+    }, [])
+  );
+
+  const handleEditProfilePress = () => {
+    if (profileData) {
+      router.push({
+        pathname: '/EditProfileScreen',
+        params: { 
+          userData: JSON.stringify(profileData.user)
         }
-      );
-  
-      if (response.data.success) {
-        setProfileData(prev => prev ? {
-          ...prev,
-          user: {
-            ...prev.user,
-            ...response.data.user
-          }
-        } : null);
-        Alert.alert('Success', 'Profile updated successfully');
-        fetchProfile(); // Refresh the profile data
-      }
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      Alert.alert(
-        'Error',
-        error.response?.data?.message || 'Failed to update profile'
-      );
+      });
     }
   };
 
- 
-
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={customTheme.colors.primary} />
@@ -160,11 +132,21 @@ export default function ProfileScreen() {
 
   return (
     <>
-     <Sidebar 
+      <Sidebar 
         visible={sidebarVisible} 
         onClose={() => setSidebarVisible(false)} 
       />
-      <ScrollView style={styles.container}>
+      <ScrollView 
+        style={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[customTheme.colors.primary]}
+            tintColor={customTheme.colors.primary}
+          />
+        }
+      >
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.menuButton}
@@ -172,19 +154,27 @@ export default function ProfileScreen() {
           >
             <Menu size={24} color={customTheme.colors.onSurface} />
           </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={onRefresh}
+          >
+            <RefreshCw size={24} color={customTheme.colors.primary} />
+          </TouchableOpacity>
+          
           <Avatar.Image
             size={100}
             source={{ uri: profileData.user.avatar }}
             style={styles.avatar}
           />
           <Text variant="headlineMedium" style={styles.name}>
-            {profileData?.user?.name}
+            {profileData.user.name}
           </Text>
           
           <View style={styles.ratingContainer}>
             <Star size={20} color="#FFD700" fill="#FFD700" />
             <Text variant="titleMedium" style={styles.rating}>
-              {profileData?.user?.rating?.toFixed(1) || '0.0'} ({profileData?.reviews?.length || 0} reviews)
+              {profileData.user.rating?.toFixed(1) || '0.0'} ({profileData.reviews?.length || 0} reviews)
             </Text>
           </View>
           <View style={styles.infoContainer}>
@@ -197,7 +187,7 @@ export default function ProfileScreen() {
             <View style={styles.infoItem}>
               <Calendar size={16} color="#666" />
               <Text variant="bodyMedium" style={styles.infoText}>
-                Member since {profileData?.user?.memberSince ?? ''}
+                Member since {profileData.user.memberSince}
               </Text>
             </View>
           </View>
@@ -207,7 +197,7 @@ export default function ProfileScreen() {
           <Button 
             mode="contained" 
             style={styles.editButton}
-            onPress={() => setEditModalVisible(true)}
+            onPress={handleEditProfilePress}
           >
             Edit Profile
           </Button>
@@ -241,14 +231,10 @@ export default function ProfileScreen() {
         </View>
 
         <AchievementProgress
-          currentLevel={profileData?.user?.level || 'BRONZE'}
-          completedTasks={profileData?.user?.completedTasks || 0}
-          points={profileData?.user?.points || 0}
-          badges={
-            Array.isArray(profileData?.user?.badges) 
-              ? profileData.user.badges
-              : []
-          }
+          currentLevel={profileData.user.level || 'BRONZE'}
+          completedTasks={profileData.user.completedTasks || 0}
+          points={profileData.user.points || 0}
+          badges={profileData.user.badges || []}
         />
 
         <View style={styles.section}>
@@ -267,9 +253,7 @@ export default function ProfileScreen() {
                       <View style={styles.reviewUser}>
                         <Avatar.Image
                           size={40}
-                          source={{ 
-                            uri: review.avatar || 'https://via.placeholder.com/40' 
-                          }}
+                          source={{ uri: review.avatar || 'https://via.placeholder.com/40' }}
                           style={styles.reviewAvatar}
                         />
                         <View>
@@ -307,19 +291,6 @@ export default function ProfileScreen() {
             <Text style={styles.noReviewsText}>No reviews yet</Text>
           )}
         </View>
-        
-        <EditProfileModal
-    visible={editModalVisible}
-    onDismiss={() => setEditModalVisible(false)}
-    onSave={handleUpdateProfile}
-    initialData={{
-      name: profileData?.user?.name || '',
-      phone: profileData?.user?.phone || '',
-      city: profileData?.user?.city || '',
-      avatar: profileData?.user?.avatar || '',
-      bio: profileData?.user?.bio || ''
-    }}
-  />
       </ScrollView>
     </>
   );
@@ -336,7 +307,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
+  refreshButton: {
+    position: 'absolute',
+    right: 16,
+    top: 50,
+    padding: 8,
+  },
+  menuButton: {
+    position: 'absolute',
+    left: 16,
+    top: 50,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
   avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     marginBottom: 16,
     backgroundColor: customTheme.colors.surfaceVariant,
   },
@@ -374,6 +362,7 @@ const styles = StyleSheet.create({
   },
   editButton: {
     width: '100%',
+    marginTop: 8,
     backgroundColor: customTheme.colors.primary,
   },
   statsContainer: {
@@ -419,6 +408,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   reviewAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 12,
     backgroundColor: customTheme.colors.surfaceVariant,
   },
@@ -442,16 +434,9 @@ const styles = StyleSheet.create({
     borderColor: customTheme.colors.primary,
   },
   centered: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  menuButton: {
-    position: 'absolute',
-    left: 16,
-    top: 50,
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   noReviewsText: {
     textAlign: 'center',

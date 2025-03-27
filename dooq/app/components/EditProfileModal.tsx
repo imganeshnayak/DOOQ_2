@@ -5,26 +5,30 @@ import * as ImagePicker from 'expo-image-picker';
 import { Camera, X, Check } from 'lucide-react-native';
 import customTheme from '../theme';
 import * as ImageManipulator from 'expo-image-manipulator';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface EditProfileModalProps {
   visible: boolean;
   onDismiss: () => void;
-  onSave: (data: FormData) => Promise<void>;
+  onSuccess: () => void; // Callback after successful update
   initialData: {
     name: string;
     phone: string;
-    city: string; 
+    city: string;
     avatar: string;
     bio: string;
   };
 }
 
-const EditProfileModal = ({ visible, onDismiss, onSave, initialData }: EditProfileModalProps) => {
+const EditProfileModal = ({ visible, onDismiss, onSuccess, initialData }: EditProfileModalProps) => {
   const [formData, setFormData] = useState({ ...initialData });
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Prevent overwriting user input by only setting initialData when modal opens
   useEffect(() => {
     if (visible) {
       setFormData({ ...initialData });
@@ -32,13 +36,12 @@ const EditProfileModal = ({ visible, onDismiss, onSave, initialData }: EditProfi
     }
   }, [visible]);
 
-  // Memoized handlers to prevent full re-renders
   const handleChange = useCallback((name: string, value: string) => {
     setFormData(prevState => ({
       ...prevState,
       [name]: value,
     }));
-  }, [setFormData]);
+  }, []);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -71,20 +74,50 @@ const EditProfileModal = ({ visible, onDismiss, onSave, initialData }: EditProfi
   const handleSubmit = async () => {
     try {
       setLoading(true);
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
+
       const form = new FormData();
-      Object.entries(formData).forEach(([key, value]) => form.append(key, value));
+      form.append('name', formData.name);
+      form.append('phone', formData.phone);
+      form.append('city', formData.city);
+      form.append('bio', formData.bio);
 
       if (image) {
         const filename = image.split('/').pop();
         const match = /\.(\w+)$/.exec(filename || '');
         const type = match ? `image/${match[1]}` : `image`;
-        form.append('avatar', { uri: image, name: filename, type } as any);
+        form.append('avatar', {
+          uri: image,
+          name: filename,
+          type,
+        } as any);
       }
 
-      await onSave(form);
-      onDismiss();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update profile.');
+      const response = await axios.put(
+        `${API_URL}/api/users/profile`,
+        form,
+        {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      if (response.data.success) {
+        Alert.alert('Success', 'Profile updated successfully');
+        onSuccess(); // Trigger the success callback
+        onDismiss();
+      } else {
+        throw new Error(response.data.message || 'Update failed');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
       setLoading(false);
     }
@@ -148,7 +181,15 @@ const EditProfileModal = ({ visible, onDismiss, onSave, initialData }: EditProfi
 
         <View style={styles.buttonContainer}>
           <Button mode="outlined" onPress={onDismiss} disabled={loading}>Cancel</Button>
-          <Button mode="contained" onPress={handleSubmit} loading={loading} disabled={loading} icon={Check}>Save</Button>
+          <Button 
+            mode="contained" 
+            onPress={handleSubmit} 
+            loading={loading} 
+            disabled={loading} 
+            icon={Check}
+          >
+            Save
+          </Button>
         </View>
       </Modal>
     </Portal>
@@ -156,19 +197,72 @@ const EditProfileModal = ({ visible, onDismiss, onSave, initialData }: EditProfi
 };
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: customTheme.colors.surface, padding: 24, borderRadius: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  title: { fontWeight: 'bold', color: customTheme.colors.primary },
-  closeButton: { marginLeft: 'auto' },
-  imageSection: { alignItems: 'center', marginBottom: 20 },
-  imageContainer: { position: 'relative', marginBottom: 8 },
-  avatar: { width: 140, height: 140, borderRadius: 70 },
-  placeholderAvatar: { width: 140, height: 140, borderRadius: 70, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' },
-  editBadge: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'black', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  editBadgeText: { color: 'white', fontSize: 12, fontWeight: 'bold' },
-  input: { marginBottom: 12, backgroundColor: customTheme.colors.surface },
-  bioInput: { height: 120, textAlignVertical: 'top' },
-  buttonContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
+  container: { 
+    backgroundColor: customTheme.colors.surface, 
+    padding: 24, 
+    margin: 20,
+    borderRadius: 12 
+  },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 20 
+  },
+  title: { 
+    fontWeight: 'bold', 
+    color: customTheme.colors.primary 
+  },
+  closeButton: { 
+    marginLeft: 'auto' 
+  },
+  imageSection: { 
+    alignItems: 'center', 
+    marginBottom: 20 
+  },
+  imageContainer: { 
+    position: 'relative', 
+    marginBottom: 8 
+  },
+  avatar: { 
+    width: 140, 
+    height: 140, 
+    borderRadius: 70 
+  },
+  placeholderAvatar: { 
+    width: 140, 
+    height: 140, 
+    borderRadius: 70, 
+    backgroundColor: customTheme.colors.surfaceVariant, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  editBadge: { 
+    position: 'absolute', 
+    bottom: 5, 
+    right: 5, 
+    backgroundColor: customTheme.colors.primary, 
+    paddingHorizontal: 8, 
+    paddingVertical: 4, 
+    borderRadius: 12 
+  },
+  editBadgeText: { 
+    color: 'white', 
+    fontSize: 12, 
+    fontWeight: 'bold' 
+  },
+  input: { 
+    marginBottom: 12, 
+    backgroundColor: customTheme.colors.surface 
+  },
+  bioInput: { 
+    height: 120, 
+    textAlignVertical: 'top' 
+  },
+  buttonContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginTop: 16 
+  },
 });
 
 export default React.memo(EditProfileModal);
