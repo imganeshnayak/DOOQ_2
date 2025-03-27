@@ -4,12 +4,13 @@
     "slug": "Dooq",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.png",
-    "scheme": "myapp",
+    "icon": "./assets/images/logo.jpg",
+    "scheme": "dooq",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.dooq"
     },
     "web": {
       "bundler": "metro",
@@ -30,8 +31,22 @@
       "typedRoutes": true
     },
     "extra": {
-      "API_URL": "http://192.168.1.126:5000"
-
+      "API_URL": "http://192.168.79.125:5000"
+    },
+    "android": {
+      "package": "com.yourcompany.dooq",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "dooq",
+              "host": "*"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     }
   }
 }

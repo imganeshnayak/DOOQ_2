@@ -7,7 +7,10 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import customTheme from '../theme';
 import { io } from 'socket.io-client';
-
+interface CachedAvatars {
+  timestamp: number;
+  data: Record<string, string>;
+}
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 export default function MessagesScreen() {
@@ -17,6 +20,7 @@ export default function MessagesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatars, setUserAvatars] = useState<Record<string, string>>({});
+  const [avatarFetchTimestamp, setAvatarFetchTimestamp] = useState<number>(0);
 
   const fetchUserId = async () => {
     try {
@@ -33,16 +37,24 @@ export default function MessagesScreen() {
     }
   };
 
-  const fetchUserAvatars = async (userIds: string[]) => {
+  const fetchAvatars = async (userIds: string[]) => {
+    // Only fetch if 5 minutes have passed since last fetch
+    const now = Date.now();
+    if (now - avatarFetchTimestamp < 300000) {
+      return;
+    }
+
     try {
       const token = await AsyncStorage.getItem('authToken');
       if (!token || !userIds.length) return;
 
-      console.log('Fetching avatars for users:', userIds);
+      const uniqueUserIds = [...new Set(userIds)]; // Remove duplicates
+      
+      console.log('Fetching avatars for users:', uniqueUserIds);
 
       const response = await axios.post(
         `${API_URL}/api/users/avatars`,
-        { userIds },
+        { userIds: uniqueUserIds },
         { 
           headers: { 
             Authorization: `Bearer ${token}`,
@@ -51,14 +63,18 @@ export default function MessagesScreen() {
         }
       );
 
-      console.log('Avatar response:', response.data);
-
       if (response.data) {
-        setUserAvatars(prev => ({ ...prev, ...response.data }));
+        setUserAvatars(response.data);
+        setAvatarFetchTimestamp(now);
+        
+        // Cache avatars in AsyncStorage
+        await AsyncStorage.setItem('cachedAvatars', JSON.stringify({
+          timestamp: now,
+          data: response.data
+        }));
       }
     } catch (error: any) {
       console.error('Error fetching avatars:', error.response?.data || error.message);
-      // Don't show error to user, just fail silently and use fallback avatars
     }
   };
 
@@ -82,7 +98,7 @@ export default function MessagesScreen() {
         // Only fetch avatars if we have conversations
         if (convResponse.data.length > 0) {
           const userIds = convResponse.data.map((conv: any) => conv.userId);
-          await fetchUserAvatars(userIds);
+          await fetchAvatars(userIds);
         }
       }
     } catch (error: any) {
@@ -126,6 +142,34 @@ export default function MessagesScreen() {
 
     initializeSocket();
   }, []);
+
+  // Load cached avatars on mount
+  useEffect(() => {
+    const loadCachedAvatars = async () => {
+      try {
+        const cached = await AsyncStorage.getItem('cachedAvatars');
+        if (cached) {
+          const { timestamp, data } = JSON.parse(cached);
+          if (Date.now() - timestamp < 300000) { // Less than 5 minutes old
+            setUserAvatars(data);
+            setAvatarFetchTimestamp(timestamp);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading cached avatars:', error);
+      }
+    };
+
+    loadCachedAvatars();
+  }, []);
+
+  // Only fetch avatars when conversations change
+  useEffect(() => {
+    if (conversations.length > 0) {
+      const userIds = conversations.map(conv => conv.userId);
+      fetchAvatars(userIds);
+    }
+  }, [conversations]);
 
   const renderItem = ({ item }: { item: any }) => {
     const avatarUri = userAvatars[item.userId] || null;

@@ -6,7 +6,7 @@ import mongoose from 'mongoose';  // Add this line
 import cloudinary from '../config/cloudinary.js';
 import Review from '../models/Review.js';
 
-import { sendOTP } from '../services/emailService.js';
+import { sendOTP,sendPasswordResetEmail } from '../services/emailService.js';
 
 export const register = async (req, res) => {
   try {
@@ -223,7 +223,7 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, phone, city } = req.body;
+    const { name, phone, city,bio } = req.body;
     const userId = req.user.userId; // Fix: use userId from auth middleware
 
     const updateFields = {};
@@ -232,6 +232,7 @@ export const updateProfile = async (req, res) => {
     if (name) updateFields.name = name;
     if (phone) updateFields.phone = phone;
     if (city) updateFields.city = city;
+    if (bio)  updateFields.bio=bio;
 
     // Handle avatar upload if present
     if (req.file) {
@@ -333,62 +334,81 @@ export const getCurrentUser = async (req, res) => {
 };
 
 export const forgotPassword = async (req, res) => {
-    try {
-        const { email } = req.body;
-        
-        if (!email) {
-            return res.status(400).json({ message: 'Email is required' });
-        }
-
-        console.log('Processing forgot password for:', email);
-
-        const user = await User.findOne({ email });
-
-        // Always return success even if user not found (security best practice)
-        if (!user) {
-            console.log('User not found for email:', email);
-            return res.json({ 
-                message: 'If an account exists with this email, you will receive password reset instructions.' 
-            });
-        }
-
-        // Generate reset token
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        const resetTokenExpiry = Date.now() + 3600000; // 1 hour
-
-        // Save reset token
-        user.resetToken = resetToken;
-        user.resetTokenExpiry = resetTokenExpiry;
-        await user.save();
-
-        console.log('Reset token generated for user:', resetToken);
-
-        // TODO: Send email with reset instructions
-        // For development, return token directly
-        res.json({ 
-            message: 'Password reset instructions sent',
-            resetToken // Remove in production
-        });
-
-    } catch (error) {
-        console.error('Forgot password error:', error);
-        res.status(500).json({ 
-            message: 'An error occurred while processing your request' 
-        });
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
     }
+
+    console.log('Processing forgot password request for:', email);
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // Don't reveal whether a user exists
+      return res.json({ 
+        message: 'If an account exists with this email, you will receive password reset instructions.' 
+      });
+    }
+
+    // Generate a 6-digit code
+    const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+
+    // Save the reset token
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = resetTokenExpiry;
+    await user.save();
+
+    try {
+      await sendPasswordResetEmail(email, resetToken);
+      console.log('Reset email sent successfully to:', email);
+      
+      res.json({ 
+        message: 'Password reset instructions have been sent to your email.',
+        success: true
+      });
+    } catch (emailError) {
+      console.error('Failed to send reset email:', emailError);
+      
+      // Reset the token if email fails
+      user.resetToken = null;
+      user.resetTokenExpiry = null;
+      await user.save();
+      
+      res.status(500).json({ 
+        message: 'Failed to send reset instructions. Please try again.',
+        success: false
+      });
+    }
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ 
+      message: 'An error occurred while processing your request',
+      success: false
+    });
+  }
 };
 
 export const resetPassword = async (req, res) => {
     try {
-        const { token, newPassword } = req.body;
+        const { email, resetToken, newPassword } = req.body;
         
+        console.log('Reset password attempt:', { email, resetToken });
+
         const user = await User.findOne({
-            resetToken: token,
+            email: email,
+            resetToken: resetToken,
             resetTokenExpiry: { $gt: Date.now() }
         });
 
         if (!user) {
-            return res.status(400).json({ message: 'Invalid or expired reset token' });
+            console.log('Invalid reset attempt:', { email, resetToken });
+            return res.status(400).json({ 
+                message: 'Invalid or expired reset code' 
+            });
         }
 
         // Update password
@@ -397,6 +417,7 @@ export const resetPassword = async (req, res) => {
         user.resetTokenExpiry = undefined;
         await user.save();
 
+        console.log('Password reset successful for:', email);
         res.json({ message: 'Password reset successful' });
     } catch (error) {
         console.error('Reset password error:', error);

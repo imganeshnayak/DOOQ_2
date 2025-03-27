@@ -1,7 +1,7 @@
 import { View, StyleSheet, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { Text, Button, Avatar, Card } from 'react-native-paper';
 import { Star, MapPin, Calendar, Menu } from 'lucide-react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -10,8 +10,9 @@ import { useRouter } from 'expo-router';
 import EditProfileModal from '../components/EditProfileModal';
 import AchievementProgress from '../components/AchievementProgress';
 import Sidebar from '../components/Sidebar';
+import React from 'react';
 
-const API_URL = Constants.expoConfig?.extra?.API_URL;
+const API_URL = Constants.expoConfig?.extra?.API_URL; 
 
 interface ProfileData {
   user: {
@@ -135,6 +136,8 @@ export default function ProfileScreen() {
       );
     }
   };
+
+ 
 
   if (loading) {
     return (
@@ -306,16 +309,17 @@ export default function ProfileScreen() {
         </View>
         
         <EditProfileModal
-  visible={editModalVisible}
-  onDismiss={() => setEditModalVisible(false)}
-  onSave={handleUpdateProfile}
-  initialData={{
-    name: profileData?.user?.name || '',
-    phone: profileData?.user?.phone || '',
-    city: profileData?.user?.city || '',
-    avatar: profileData?.user?.avatar || ''
-  }}
-/>
+    visible={editModalVisible}
+    onDismiss={() => setEditModalVisible(false)}
+    onSave={handleUpdateProfile}
+    initialData={{
+      name: profileData?.user?.name || '',
+      phone: profileData?.user?.phone || '',
+      city: profileData?.user?.city || '',
+      avatar: profileData?.user?.avatar || '',
+      bio: profileData?.user?.bio || ''
+    }}
+  />
       </ScrollView>
     </>
   );

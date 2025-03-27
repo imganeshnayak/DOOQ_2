@@ -11,6 +11,7 @@ import { DefaultEventsMap } from '@socket.io/component-emitter';
 import { Stack } from 'expo-router';
 import { ChevronLeft, User } from 'lucide-react-native';
 import UserProfileModal from '../components/UserProfileModal';
+
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface Message {
@@ -31,12 +32,11 @@ const MessageBubble = ({ message, isCurrentUser }: { message: Message; isCurrent
       case 'sending': return <Text style={styles.statusText}>⋯</Text>;
       case 'sent': return <Text style={styles.statusText}>✓</Text>;
       case 'delivered': return <Text style={styles.statusText}>✓✓</Text>;
-      case 'read': return <Text style={[styles.statusText, { color: '#34B7F1' }]}>✓✓</Text>; // ✅ FIXED
+      case 'read': return <Text style={[styles.statusText, { color: '#34B7F1' }]}>✓✓</Text>;
       case 'error': return <Text style={[styles.statusText, { color: 'red' }]}>!</Text>;
       default: return <Text style={styles.statusText}>✓</Text>;
     }
   };
-  
 
   return (
     <View style={[styles.messageContainer, isCurrentUser ? styles.sentContainer : styles.receivedContainer]}>
@@ -54,7 +54,6 @@ const MessageBubble = ({ message, isCurrentUser }: { message: Message; isCurrent
   );
 };
 
-// Update the MessageList component
 const MessageList = memo(({ messages, userId }: { messages: Message[]; userId: string | null }) => {
   const listRef = useRef<ScrollView>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -113,9 +112,7 @@ export default function ChatScreen() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const scrollViewRef = useRef<ScrollView>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [sentMessages] = useState(new Set());
   const [userProfile, setUserProfile] = useState(null);
   const [profileVisible, setProfileVisible] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -125,26 +122,37 @@ export default function ChatScreen() {
     navigation.setOptions({
       headerTitle: receiverName || 'Chat',
       headerLeft: () => (
-        <TouchableOpacity 
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backButtonText}>←</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtonContainer}>
+          <TouchableOpacity 
+            onPress={handleBack}
+            style={styles.headerButton}
+            disabled={isNavigating}
+            hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft size={28} color={customTheme.colors.primary} />
+          </TouchableOpacity>
+        </View>
       ),
       headerRight: () => (
-        <TouchableOpacity 
-          onPress={() => {
-            fetchUserProfile();
-            setProfileVisible(true);
-          }}
-          style={styles.profileButton}
-        >
-          <User size={24} color={customTheme.colors.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerButtonContainer}>
+          <TouchableOpacity 
+            onPress={fetchUserProfile}
+            style={styles.headerButton}
+            disabled={profileLoading}
+            hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+            activeOpacity={0.7}
+          >
+            {profileLoading ? (
+              <ActivityIndicator size="small" color={customTheme.colors.primary} />
+            ) : (
+              <User size={24} color={customTheme.colors.primary} />
+            )}
+          </TouchableOpacity>
+        </View>
       ),
     });
-  }, [receiverName]);
+  }, [receiverName, isNavigating, profileLoading]);
 
   useEffect(() => {
     const getUserId = async () => {
@@ -261,10 +269,8 @@ export default function ChatScreen() {
       if (!socket || !receiverId) return;
 
       try {
-        // Mark all unread messages as read when chat is opened
         socket.emit('markConversationRead', { otherUserId: receiverId });
         
-        // Update local message states
         setMessages(prev => prev.map(msg => 
           msg.sender._id === receiverId ? { ...msg, read: true, status: 'read' } : msg
         ));
@@ -349,13 +355,7 @@ export default function ChatScreen() {
       setProfileLoading(false);
     }
   };
-// Add this useEffect after other effects
-useEffect(() => {
-  return () => {
-    setIsNavigating(false);
-    setProfileLoading(false);
-  };
-}, []);
+
   const handleBack = () => {
     if (isNavigating) return;
     setIsNavigating(true);
@@ -378,7 +378,6 @@ useEffect(() => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
   
-      // Refresh user profile to show new review
       fetchUserProfile();
     } catch (error) {
       console.error('Error submitting review:', error);
@@ -386,7 +385,6 @@ useEffect(() => {
     }
   };
 
-  // Update the main return statement in ChatScreen
   return (
     <>
       <Stack.Screen
@@ -395,26 +393,34 @@ useEffect(() => {
           headerTitle: receiverName || 'Chat',
           headerTitleAlign: 'center',
           headerLeft: () => (
-            <TouchableOpacity 
-              onPress={handleBack}
-              style={styles.backButton}
-              disabled={isNavigating}
-            >
-              <ChevronLeft size={28} color={customTheme.colors.primary} />
-            </TouchableOpacity>
+            <View style={styles.headerButtonContainer}>
+              <TouchableOpacity 
+                onPress={handleBack}
+                style={styles.headerButton}
+                disabled={isNavigating}
+                hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+                activeOpacity={0.7}
+              >
+                <ChevronLeft size={28} color={customTheme.colors.primary} />
+              </TouchableOpacity>
+            </View>
           ),
           headerRight: () => (
-            <TouchableOpacity 
-              onPress={fetchUserProfile}
-              style={styles.profileButton}
-              disabled={profileLoading}
-            >
-              {profileLoading ? (
-                <ActivityIndicator size="small" color={customTheme.colors.primary} />
-              ) : (
-                <User size={24} color={customTheme.colors.primary} />
-              )}
-            </TouchableOpacity>
+            <View style={styles.headerButtonContainer}>
+              <TouchableOpacity 
+                onPress={fetchUserProfile}
+                style={styles.headerButton}
+                disabled={profileLoading}
+                hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+                activeOpacity={0.7}
+              >
+                {profileLoading ? (
+                  <ActivityIndicator size="small" color={customTheme.colors.primary} />
+                ) : (
+                  <User size={24} color={customTheme.colors.primary} />
+                )}
+              </TouchableOpacity>
+            </View>
           ),
           headerStyle: {
             backgroundColor: customTheme.colors.surface,
@@ -476,7 +482,6 @@ useEffect(() => {
   );
 }
 
-// Update the styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -571,25 +576,15 @@ const styles = StyleSheet.create({
   sentMessageText: {
     color: '#fff',
   },
-  backButton: {
-    padding: 12,
-    marginLeft: 4,
-    borderRadius: 40,
+  headerButtonContainer: {
+    width: 60, // Fixed width for consistent touch area
+    height: 60, // Fixed height for consistent touch area
     justifyContent: 'center',
     alignItems: 'center',
-    opacity: 1, // Add this
   },
-  backButtonText: {
-    fontSize: 24,
-    color: customTheme.colors.primary,
-  },
-  profileButton: {
-    padding: 20,
-    marginRight: 8,
-    borderRadius: 20,
+  headerButton: {
+    padding: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 50, // Add this
-    minHeight: 50, // Add this
   },
 });

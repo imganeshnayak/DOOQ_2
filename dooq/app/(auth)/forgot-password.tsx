@@ -31,10 +31,12 @@ export default function ForgotPasswordScreen() {
       Alert.alert(
         'Success',
         'If an account exists with this email, you will receive password reset instructions.',
-        [{ 
-          text: 'OK',
-          onPress: () => router.back()
-        }]
+      [
+        { 
+          text: 'OK', 
+          onPress: () => router.push({ pathname: '/(auth)/ResetPasswordScreen', params: { email: email.trim() } })
+        }
+      ]
       );
     } catch (error:any) {
       console.error('Reset password error:', error?.response?.data || error);
